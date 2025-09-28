@@ -1,0 +1,489 @@
+//
+//  ExportOptionsView.swift
+//  DesktopHomeInfoScraper
+//
+//  Created by Rebecca Clarke on 9/26/25.
+//
+
+import SwiftUI
+import CoreData
+import UniformTypeIdentifiers
+
+struct ExportOptionsView: View {
+    let job: Job
+    @Environment(\.managedObjectContext) private var viewContext
+    @Environment(\.dismiss) private var dismiss
+    
+    @State private var exportFormat: ExportFormat = .jobIntakePackage
+    @State private var includeSourceDocs = false
+    @State private var deliveryMethod: DeliveryMethod = .sharedFolder
+    @State private var isExporting = false
+    @State private var exportError: String?
+    @State private var exportSuccess = false
+    @State private var exportedPath: String?
+    
+    enum ExportFormat: String, CaseIterable {
+        case jobIntakePackage = "Job Intake Package"
+        case fieldResultsPackage = "Field Results Package"
+        
+        var description: String {
+            switch self {
+            case .jobIntakePackage:
+                return "Export for iPad import (JSON + images)"
+            case .fieldResultsPackage:
+                return "Export field results (CSV + photos + report)"
+            }
+        }
+    }
+    
+    enum DeliveryMethod: String, CaseIterable {
+        case sharedFolder = "Shared Folder"
+        case airdrop = "AirDrop"
+        case s3 = "S3 Pre-signed URL"
+        
+        var description: String {
+            switch self {
+            case .sharedFolder:
+                return "Save to iCloud Drive/Dropbox/OneDrive"
+            case .airdrop:
+                return "Send directly to iPad via AirDrop"
+            case .s3:
+                return "Generate download links for iPad app"
+            }
+        }
+    }
+    
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 24) {
+                // Header
+                VStack(spacing: 8) {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 48))
+                        .foregroundColor(.blue)
+                    
+                    Text("Export Job Package")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                    
+                    Text("Choose export format and delivery method")
+                        .font(.body)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(.top)
+                
+                // Job Info
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Job Details")
+                        .font(.headline)
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Job ID: \(job.jobId ?? "Unknown")")
+                        Text("Address: \(job.addressLine1 ?? ""), \(job.city ?? ""), \(job.state ?? "")")
+                        if let clientName = job.clientName {
+                            Text("Client: \(clientName)")
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                }
+                .padding()
+                .background(Color.gray.opacity(0.05))
+                .cornerRadius(8)
+                
+                // Export Format
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Export Format")
+                        .font(.headline)
+                    
+                    ForEach(ExportFormat.allCases, id: \.self) { format in
+                        HStack {
+                            Button(action: { exportFormat = format }) {
+                                HStack {
+                                    Image(systemName: exportFormat == format ? "checkmark.circle.fill" : "circle")
+                                        .foregroundColor(exportFormat == format ? .blue : .gray)
+                                    
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(format.rawValue)
+                                            .font(.subheadline)
+                                            .fontWeight(.medium)
+                                        
+                                        Text(format.description)
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+                                    
+                                    Spacer()
+                                }
+                                .padding()
+                                .background(exportFormat == format ? Color.blue.opacity(0.1) : Color.clear)
+                                .cornerRadius(8)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(exportFormat == format ? Color.blue : Color.gray.opacity(0.3), lineWidth: 1)
+                                )
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
+                    }
+                }
+                
+                // Delivery Method
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Delivery Method")
+                        .font(.headline)
+                    
+                    ForEach(DeliveryMethod.allCases, id: \.self) { method in
+                        HStack {
+                            Button(action: { deliveryMethod = method }) {
+                                HStack {
+                                    Image(systemName: deliveryMethod == method ? "checkmark.circle.fill" : "circle")
+                                        .foregroundColor(deliveryMethod == method ? .blue : .gray)
+                                    
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(method.rawValue)
+                                            .font(.subheadline)
+                                            .fontWeight(.medium)
+                                        
+                                        Text(method.description)
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+                                    
+                                    Spacer()
+                                }
+                                .padding()
+                                .background(deliveryMethod == method ? Color.blue.opacity(0.1) : Color.clear)
+                                .cornerRadius(8)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(deliveryMethod == method ? Color.blue : Color.gray.opacity(0.3), lineWidth: 1)
+                                )
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
+                    }
+                }
+                
+                // Additional Options
+                if exportFormat == .jobIntakePackage {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Additional Options")
+                            .font(.headline)
+                        
+                        HStack {
+                            Button(action: { includeSourceDocs.toggle() }) {
+                                HStack {
+                                    Image(systemName: includeSourceDocs ? "checkmark.square.fill" : "square")
+                                        .foregroundColor(includeSourceDocs ? .blue : .gray)
+                                    
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("Include Source Documents")
+                                            .font(.subheadline)
+                                            .fontWeight(.medium)
+                                        
+                                        Text("Include raw PDFs and screenshots")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+                                    
+                                    Spacer()
+                                }
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
+                        .padding()
+                        .background(Color.gray.opacity(0.05))
+                        .cornerRadius(8)
+                    }
+                }
+                
+                // Error/Success Messages
+                if let error = exportError {
+                    HStack {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.red)
+                        Text(error)
+                            .font(.caption)
+                            .foregroundColor(.red)
+                    }
+                    .padding()
+                    .background(Color.red.opacity(0.1))
+                    .cornerRadius(8)
+                }
+                
+                if exportSuccess {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                            Text("Export Successful")
+                                .font(.caption)
+                                .foregroundColor(.green)
+                        }
+                        
+                        if let path = exportedPath {
+                            Text("Saved to: \(path)")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .padding()
+                    .background(Color.green.opacity(0.1))
+                    .cornerRadius(8)
+                }
+                
+                Spacer()
+                
+                // Action Buttons
+                HStack(spacing: 16) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                    .buttonStyle(.bordered)
+                    
+                    Button("Export") {
+                        exportJob()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isExporting)
+                }
+            }
+            .padding()
+            .frame(width: 500, height: 700)
+        }
+    }
+    
+    private func exportJob() {
+        isExporting = true
+        exportError = nil
+        exportSuccess = false
+        
+        Task {
+            do {
+                let exporter = JobExporter()
+                let result = try await exporter.exportJob(
+                    job: job,
+                    format: exportFormat,
+                    includeSourceDocs: includeSourceDocs,
+                    deliveryMethod: deliveryMethod
+                )
+                
+                await MainActor.run {
+                    exportedPath = result.path
+                    exportSuccess = true
+                    isExporting = false
+                    
+                    // Update job status
+                    job.exportedAt = Date()
+                    try? viewContext.save()
+                    
+                    // Auto-dismiss after 3 seconds
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                        dismiss()
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    exportError = "Export failed: \(error.localizedDescription)"
+                    isExporting = false
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Job Exporter
+
+class JobExporter {
+    func exportJob(
+        job: Job,
+        format: ExportOptionsView.ExportFormat,
+        includeSourceDocs: Bool,
+        deliveryMethod: ExportOptionsView.DeliveryMethod
+    ) async throws -> ExportResult {
+        
+        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let exportsPath = documentsPath.appendingPathComponent("Exports")
+        
+        // Create Exports directory if it doesn't exist
+        try FileManager.default.createDirectory(at: exportsPath, withIntermediateDirectories: true)
+        
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd_HHmmss"
+        let timestamp = formatter.string(from: Date())
+        
+        let packageName = "\(job.jobId ?? "Job")_\(timestamp)"
+        let packagePath = exportsPath.appendingPathComponent(packageName)
+        
+        try FileManager.default.createDirectory(at: packagePath, withIntermediateDirectories: true)
+        
+        switch format {
+        case .jobIntakePackage:
+            try await exportJobIntakePackage(job: job, packagePath: packagePath, includeSourceDocs: includeSourceDocs)
+        case .fieldResultsPackage:
+            try await exportFieldResultsPackage(job: job, packagePath: packagePath)
+        }
+        
+        return ExportResult(path: packagePath.path)
+    }
+    
+    private func exportJobIntakePackage(job: Job, packagePath: URL, includeSourceDocs: Bool) async throws {
+        // Create jobs.json
+        let jobData = JobIntakeData(
+            version: "1.0",
+            createdAt: Date(),
+            preparedBy: "DesktopScraper 1.0.0",
+            jobs: [createJobData(from: job)]
+        )
+        
+        let jsonData = try JSONEncoder().encode(jobData)
+        let jsonURL = packagePath.appendingPathComponent("jobs.json")
+        try jsonData.write(to: jsonURL)
+        
+        // Create overhead directory and copy image
+        let overheadPath = packagePath.appendingPathComponent("overhead")
+        try FileManager.default.createDirectory(at: overheadPath, withIntermediateDirectories: true)
+        
+        if let imagePath = job.overheadImagePath {
+            let imageURL = URL(fileURLWithPath: imagePath)
+            let destinationURL = overheadPath.appendingPathComponent("\(job.jobId ?? "job")_overhead.jpg")
+            try FileManager.default.copyItem(at: imageURL, to: destinationURL)
+        }
+        
+        // Create source_docs directory if requested
+        if includeSourceDocs {
+            let sourceDocsPath = packagePath.appendingPathComponent("source_docs")
+            try FileManager.default.createDirectory(at: sourceDocsPath, withIntermediateDirectories: true)
+            
+            // In a real implementation, you would copy the source PDFs/screenshots here
+        }
+    }
+    
+    private func exportFieldResultsPackage(job: Job, packagePath: URL) async throws {
+        // This would export the field results from the iPad app
+        // For now, we'll create a placeholder structure
+        
+        let jobData = FieldResultsData(
+            intake: IntakeData(
+                sourceName: job.sourceName,
+                sourceUrl: job.sourceUrl,
+                fetchedAt: job.updatedAt
+            ),
+            field: FieldData(
+                inspector: "Field Inspector",
+                date: Date(),
+                overheadFile: "overhead_with_dots.png",
+                windows: []
+            )
+        )
+        
+        let jsonData = try JSONEncoder().encode(jobData)
+        let jsonURL = packagePath.appendingPathComponent("job.json")
+        try jsonData.write(to: jsonURL)
+        
+        // Create other required files (windows.csv, photos/, report/)
+        // This would be populated by the iPad app
+    }
+    
+    private func createJobData(from job: Job) -> ExportJobData {
+        return ExportJobData(
+            jobId: job.jobId ?? UUID().uuidString,
+            clientName: job.clientName,
+            address: AddressData(
+                line1: job.addressLine1 ?? "",
+                city: job.city ?? "",
+                state: job.state ?? "",
+                zip: job.zip
+            ),
+            notes: job.notes,
+            overhead: OverheadData(
+                imageFile: job.overheadImagePath != nil ? "overhead/\(job.jobId ?? "job")_overhead.jpg" : nil,
+                source: SourceData(
+                    name: job.sourceName,
+                    url: job.sourceUrl,
+                    fetchedAt: job.updatedAt
+                ),
+                scalePixelsPerFoot: job.scalePixelsPerFoot > 0 ? job.scalePixelsPerFoot : nil
+            )
+        )
+    }
+}
+
+// MARK: - Data Models
+
+struct ExportResult {
+    let path: String
+}
+
+struct JobIntakeData: Codable {
+    let version: String
+    let createdAt: Date
+    let preparedBy: String
+    let jobs: [ExportJobData]
+}
+
+struct ExportJobData: Codable {
+    let jobId: String
+    let clientName: String?
+    let address: AddressData
+    let notes: String?
+    let overhead: OverheadData
+}
+
+struct AddressData: Codable {
+    let line1: String
+    let city: String
+    let state: String
+    let zip: String?
+}
+
+struct OverheadData: Codable {
+    let imageFile: String?
+    let source: SourceData
+    let scalePixelsPerFoot: Double?
+}
+
+struct SourceData: Codable {
+    let name: String?
+    let url: String?
+    let fetchedAt: Date?
+}
+
+struct FieldResultsData: Codable {
+    let intake: IntakeData
+    let field: FieldData
+}
+
+struct IntakeData: Codable {
+    let sourceName: String?
+    let sourceUrl: String?
+    let fetchedAt: Date?
+}
+
+struct FieldData: Codable {
+    let inspector: String
+    let date: Date
+    let overheadFile: String
+    let windows: [WindowData]
+}
+
+struct WindowData: Codable {
+    // Placeholder for window data from iPad app
+}
+
+#Preview {
+    let context = PersistenceController.preview.container.viewContext
+    let job = Job(context: context)
+    job.jobId = "E2025-05091"
+    job.clientName = "Smith"
+    job.addressLine1 = "408 2nd Ave NW"
+    job.city = "Largo"
+    job.state = "FL"
+    job.zip = "33770"
+    job.isApproved = true
+    
+    return ExportOptionsView(job: job)
+        .environment(\.managedObjectContext, context)
+}

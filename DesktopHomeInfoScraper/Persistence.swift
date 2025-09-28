@@ -14,10 +14,27 @@ struct PersistenceController {
     static let preview: PersistenceController = {
         let result = PersistenceController(inMemory: true)
         let viewContext = result.container.viewContext
-        for _ in 0..<10 {
-            let newItem = Item(context: viewContext)
-            newItem.timestamp = Date()
+        
+        // Create sample jobs for preview
+        let sampleJobs = [
+            ("E2025-05091", "Smith", "408 2nd Ave NW", "Largo", "FL", "33770"),
+            ("E2025-05092", "Johnson", "1121 Palm Dr", "Clearwater", "FL", "33755"),
+            ("E2025-05093", "Williams", "2500 Main St", "Tampa", "FL", "33602")
+        ]
+        
+        for (jobId, client, address, city, state, zip) in sampleJobs {
+            let job = Job(context: viewContext)
+            job.jobId = jobId
+            job.clientName = client
+            job.addressLine1 = address
+            job.city = city
+            job.state = state
+            job.zip = zip
+            job.status = "queued"
+            job.createdAt = Date()
+            job.updatedAt = Date()
         }
+        
         do {
             try viewContext.save()
         } catch {
