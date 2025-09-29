@@ -16,9 +16,22 @@ struct JobDetailView: View {
     @State private var scalePixelsPerFoot: Double = 0
     @State private var showingExportOptions = false
     
+    private func updateImageSettings(zoom: Double, rotation: Double) {
+        job.zoomScale = zoom
+        job.rotation = rotation
+        
+        do {
+            try viewContext.save()
+            print("✅ [JobDetailView] Successfully saved image settings - Zoom: \(zoom), Rotation: \(rotation)")
+        } catch {
+            print("❌ [JobDetailView] Failed to save image settings: \(error)")
+        }
+    }
+    
     var body: some View {
         NavigationView {
-            VStack(spacing: 20) {
+            ScrollView {
+                VStack(spacing: 20) {
                 // Header
                 VStack(alignment: .leading, spacing: 8) {
                     Text(job.jobId ?? "Unknown Job")
@@ -47,10 +60,12 @@ struct JobDetailView: View {
                     Spacer()
                     
                     if job.status == "completed" {
-                        Button("Edit Image") {
+                        Button("Advanced Edit") {
+                            print("🔧 [JobDetailView] Advanced Edit button tapped for job: \(job.jobId ?? "Unknown")")
                             showingImageEditor = true
                         }
-                        .buttonStyle(BorderedButtonStyle())
+                        .buttonStyle(.bordered)
+                        .font(.caption)
                     }
                     
                     if job.isApproved {
@@ -60,6 +75,7 @@ struct JobDetailView: View {
                         .buttonStyle(BorderedProminentButtonStyle())
                     }
                 }
+                .padding(.bottom, 8) // Add extra spacing to prevent overlap
                 
                 // Main Content
                 if job.status == "completed" && job.overheadImagePath != nil {
@@ -70,15 +86,119 @@ struct JobDetailView: View {
                         
                         if let imagePath = job.overheadImagePath,
                            let image = NSImage(contentsOfFile: imagePath) {
+                            // Square image container with side cropping
                             Image(nsImage: image)
                                 .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(maxHeight: 400)
+                                .aspectRatio(1, contentMode: .fill) // Force square aspect ratio, crop sides
+                                .frame(width: 500, height: 500) // Fixed square container
+                                .scaleEffect(CGFloat(job.zoomScale))
+                                .rotationEffect(.degrees(job.rotation))
+                                .clipped()
                                 .cornerRadius(8)
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 8)
                                         .stroke(Color.gray.opacity(0.3), lineWidth: 1)
                                 )
+                            
+                            // Image Editing Controls
+                            VStack(spacing: 12) {
+                                Text("Image Editing")
+                                    .font(.headline)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                
+                                HStack(spacing: 20) {
+                                    // Zoom Controls
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        Text("Zoom")
+                                            .font(.subheadline)
+                                            .fontWeight(.medium)
+                                        
+                                        HStack(spacing: 8) {
+                                            Button("Zoom Out") {
+                                                let newZoom = max(0.5, job.zoomScale - 0.25)
+                                                updateImageSettings(zoom: newZoom, rotation: job.rotation)
+                                            }
+                                            .buttonStyle(.bordered)
+                                            .frame(minWidth: 80)
+                                            
+                                            Button("Zoom In") {
+                                                let newZoom = min(2.0, job.zoomScale + 0.25)
+                                                updateImageSettings(zoom: newZoom, rotation: job.rotation)
+                                            }
+                                            .buttonStyle(.bordered)
+                                            .frame(minWidth: 80)
+                                        }
+                                        
+                                        Text("Current: \(String(format: "%.1fx", job.zoomScale))")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+                                    
+                                    // Rotation Controls
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        Text("Rotation")
+                                            .font(.subheadline)
+                                            .fontWeight(.medium)
+                                        
+                                        HStack(spacing: 8) {
+                                            Button("Rotate Left") {
+                                                let newRotation = (job.rotation - 90).truncatingRemainder(dividingBy: 360)
+                                                updateImageSettings(zoom: job.zoomScale, rotation: newRotation)
+                                            }
+                                            .buttonStyle(.bordered)
+                                            .frame(minWidth: 100)
+                                            
+                                            Button("Rotate Right") {
+                                                let newRotation = (job.rotation + 90).truncatingRemainder(dividingBy: 360)
+                                                updateImageSettings(zoom: job.zoomScale, rotation: newRotation)
+                                            }
+                                            .buttonStyle(.bordered)
+                                            .frame(minWidth: 100)
+                                        }
+                                        
+                                        Text("Current: \(String(format: "%.0f°", job.rotation))")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+                                    
+                                    // Reset Button
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        Text("Reset")
+                                            .font(.subheadline)
+                                            .fontWeight(.medium)
+                                        
+                                        Button("Reset All") {
+                                            updateImageSettings(zoom: 1.0, rotation: 0.0)
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .frame(minWidth: 80)
+                                        
+                                        Text("Back to original")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+                                    
+                                    Spacer()
+                                }
+                                
+                                // Warning for high zoom
+                                if job.zoomScale > 1.8 {
+                                    HStack {
+                                        Image(systemName: "exclamationmark.triangle")
+                                            .foregroundColor(.orange)
+                                        Text("Warning: High zoom level may cut off parts of the building")
+                                            .font(.caption)
+                                            .foregroundColor(.orange)
+                                    }
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(Color.orange.opacity(0.1))
+                                    .cornerRadius(4)
+                                }
+                            }
+                            .padding()
+                            .background(Color.gray.opacity(0.05))
+                            .cornerRadius(8)
                         } else {
                             Rectangle()
                                 .fill(Color.gray.opacity(0.2))
@@ -240,17 +360,24 @@ struct JobDetailView: View {
                 }
                 
                 Spacer()
+                }
+                .frame(minWidth: 1200)
+                .padding()
             }
-            .padding()
-            .frame(width: 600, height: 700)
         }
         .sheet(isPresented: $showingImageEditor) {
             if let imagePath = job.overheadImagePath {
                 ImageEditorView(imagePath: imagePath, job: job)
+                    .frame(minWidth: 1400, idealWidth: 1600, maxWidth: 1800, minHeight: 800, idealHeight: 1000, maxHeight: 1200)
+                    .presentationDetents([.large])
+                    .presentationDragIndicator(.visible)
             }
         }
         .sheet(isPresented: $showingExportOptions) {
             ExportOptionsView(job: job)
+                .frame(width: 700, height: 700)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
         }
     }
     

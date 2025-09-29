@@ -29,9 +29,33 @@
 		A9A4046A2E86E2AA00722290 /* DesktopHomeInfoScraperUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DesktopHomeInfoScraperUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		A9F84CC82E88D76200386D14 /* Exceptions for "DesktopHomeInfoScraper" folder in "DesktopHomeInfoScraper" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				mockImportData.csv,
+			);
+			target = A9A4044C2E86E2A900722290 /* DesktopHomeInfoScraper */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
+		A9F84CC92E88D76200386D14 /* Exceptions for "DesktopHomeInfoScraper" folder in "Compile Sources" phase from "DesktopHomeInfoScraper" target */ = {
+			isa = PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet;
+			buildPhase = A9A404492E86E2A900722290 /* Sources */;
+			membershipExceptions = (
+				mockImportData.csv,
+			);
+		};
+/* End PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		A9A4044F2E86E2A900722290 /* DesktopHomeInfoScraper */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				A9F84CC82E88D76200386D14 /* Exceptions for "DesktopHomeInfoScraper" folder in "DesktopHomeInfoScraper" target */,
+				A9F84CC92E88D76200386D14 /* Exceptions for "DesktopHomeInfoScraper" folder in "Compile Sources" phase from "DesktopHomeInfoScraper" target */,
+			);
 			path = DesktopHomeInfoScraper;
 			sourceTree = "<group>";
 		};

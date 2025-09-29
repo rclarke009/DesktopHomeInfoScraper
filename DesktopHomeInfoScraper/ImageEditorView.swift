@@ -20,11 +20,12 @@ struct ImageEditorView: View {
     @State private var showingScaleDialog = false
     @State private var scaleStartPoint: CGPoint?
     @State private var scaleEndPoint: CGPoint?
+    @State private var zoomScale: CGFloat = 1.0
     
     var body: some View {
         NavigationView {
-            VStack(spacing: 16) {
-                // Header
+            VStack(spacing: 20) {
+                // Header with Done button
                 HStack {
                     Text("Edit Property Image")
                         .font(.title2)
@@ -37,16 +38,195 @@ struct ImageEditorView: View {
                         dismiss()
                     }
                     .buttonStyle(.borderedProminent)
+                    .disabled(zoomScale > 1.8)
                 }
+                .padding(.horizontal)
                 
-                // Image Display
+                // Controls section
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 20) {
+                        // Zoom Controls
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Zoom")
+                                .font(.headline)
+                            
+                            VStack(spacing: 8) {
+                                HStack(spacing: 8) {
+                                    Button("Zoom Out") {
+                                        zoomScale = max(0.5, zoomScale - 0.25)
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .frame(minWidth: 80)
+                                    
+                                    Button("Zoom In") {
+                                        zoomScale = min(2.0, zoomScale + 0.25)
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .frame(minWidth: 80)
+                                }
+                                
+                                HStack {
+                                    Text("Current: \(Int(zoomScale * 100))%")
+                                        .font(.subheadline)
+                                        .foregroundColor(.secondary)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    
+                                    Button("Reset") {
+                                        zoomScale = 1.0
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .frame(minWidth: 60)
+                                }
+                                
+                                // Zoom warning
+                                if zoomScale > 1.8 {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "exclamationmark.triangle.fill")
+                                            .foregroundColor(.orange)
+                                            .font(.caption)
+                                        Text("Zoom too close - building may be cut off")
+                                            .font(.caption)
+                                            .foregroundColor(.orange)
+                                    }
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(Color.orange.opacity(0.1))
+                                    .cornerRadius(4)
+                                }
+                            }
+                        }
+                        
+                        // Rotation Controls
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Rotation")
+                                .font(.headline)
+                            
+                            VStack(spacing: 8) {
+                                HStack(spacing: 8) {
+                                    Button("Rotate Left") {
+                                        rotation -= 90
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .frame(minWidth: 80)
+                                    
+                                    Button("Rotate Right") {
+                                        rotation += 90
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .frame(minWidth: 80)
+                                }
+                                
+                                HStack {
+                                    Text("Current: \(Int(rotation))°")
+                                        .font(.subheadline)
+                                        .foregroundColor(.secondary)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    
+                                    Button("Reset") {
+                                        rotation = 0
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .frame(minWidth: 60)
+                                }
+                            }
+                        }
+                        
+                        // Scale Controls
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Scale Reference")
+                                .font(.headline)
+                            
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Drag across a known dimension (e.g., 10 feet)")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                
+                                if scalePixelsPerFoot > 0 {
+                                    HStack {
+                                        Text("Scale: \(String(format: "%.2f", scalePixelsPerFoot)) pixels/foot")
+                                            .font(.subheadline)
+                                            .fontWeight(.medium)
+                                            .foregroundColor(.blue)
+                                        
+                                        Spacer()
+                                    }
+                                }
+                                
+                                if scalePixelsPerFoot > 0 {
+                                    HStack {
+                                        Text("Known distance (feet):")
+                                            .font(.subheadline)
+                                        
+                                        TextField("Enter distance", value: $scalePixelsPerFoot, format: .number)
+                                            .textFieldStyle(.roundedBorder)
+                                            .frame(width: 80)
+                                        
+                                        Button("Set Scale") {
+                                            setScale()
+                                        }
+                                        .buttonStyle(.bordered)
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // Image Info
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Image Information")
+                                .font(.headline)
+                            
+                            VStack(alignment: .leading, spacing: 8) {
+                                if let sourceName = job.sourceName {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("Source:")
+                                            .font(.subheadline)
+                                            .fontWeight(.medium)
+                                        Text(sourceName)
+                                            .font(.subheadline)
+                                            .foregroundColor(.secondary)
+                                    }
+                                }
+                                
+                                if let sourceUrl = job.sourceUrl {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("URL:")
+                                            .font(.subheadline)
+                                            .fontWeight(.medium)
+                                        Link(sourceUrl, destination: URL(string: sourceUrl) ?? URL(string: "https://example.com")!)
+                                            .font(.caption)
+                                    }
+                                }
+                                
+                                if let parcelId = job.parcelId {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("Parcel ID:")
+                                            .font(.subheadline)
+                                            .fontWeight(.medium)
+                                        Text(parcelId)
+                                            .font(.subheadline)
+                                            .foregroundColor(.secondary)
+                                    }
+                                }
+                            }
+                        }
+                        .padding()
+                        .background(Color.gray.opacity(0.05))
+                        .cornerRadius(8)
+                    }
+                    .padding(.horizontal)
+                }
+                .padding(.vertical, 8)
+                
+                // Main Image Display - Full Width
                 if let image = image {
                     VStack(spacing: 12) {
+                        // Image container that maintains aspect ratio
                         Image(nsImage: image)
                             .resizable()
                             .aspectRatio(contentMode: .fit)
-                            .frame(maxHeight: 400)
+                            .scaleEffect(zoomScale)
                             .rotationEffect(.degrees(rotation))
+                            .clipped()
                             .cornerRadius(8)
                             .overlay(
                                 RoundedRectangle(cornerRadius: 8)
@@ -68,32 +248,35 @@ struct ImageEditorView: View {
                                         scaleEndPoint = nil
                                     }
                             )
+                            .frame(maxWidth: .infinity, maxHeight: 600) // Full width, reasonable height
                         
-                        // Scale Line Visualization
-                        if let start = scaleStartPoint, let end = scaleEndPoint {
-                            GeometryReader { geometry in
-                                Path { path in
-                                    let startPoint = CGPoint(
-                                        x: start.x * geometry.size.width,
-                                        y: start.y * geometry.size.height
-                                    )
-                                    let endPoint = CGPoint(
-                                        x: end.x * geometry.size.width,
-                                        y: end.y * geometry.size.height
-                                    )
-                                    
-                                    path.move(to: startPoint)
-                                    path.addLine(to: endPoint)
-                                }
-                                .stroke(Color.red, lineWidth: 2)
+                        // Scale Reference Display
+                        if scalePixelsPerFoot > 0 {
+                            HStack(spacing: 8) {
+                                Image(systemName: "ruler")
+                                    .foregroundColor(.blue)
+                                    .font(.caption)
+                                Text("Scale: \(String(format: "%.1f", scalePixelsPerFoot)) pixels per foot")
+                                    .font(.caption)
+                                    .foregroundColor(.blue)
                             }
-                            .frame(height: 400)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.blue.opacity(0.1))
+                            .cornerRadius(4)
                         }
+                        
+                        // Instructions
+                        Text("Use controls above to adjust the image")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .padding(.top, 4)
                     }
+                    .padding(.horizontal)
                 } else {
                     Rectangle()
                         .fill(Color.gray.opacity(0.2))
-                        .frame(height: 400)
+                        .frame(maxWidth: .infinity, maxHeight: 400)
                         .overlay(
                             VStack {
                                 Image(systemName: "photo")
@@ -105,116 +288,13 @@ struct ImageEditorView: View {
                             }
                         )
                         .cornerRadius(8)
+                        .padding(.horizontal)
                 }
-                
-                // Controls
-                VStack(spacing: 16) {
-                    // Rotation Controls
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Rotation")
-                            .font(.headline)
-                        
-                        HStack {
-                            Button("Rotate Left") {
-                                rotation -= 90
-                            }
-                            .buttonStyle(.bordered)
-                            
-                            Text("\(Int(rotation))°")
-                                .frame(minWidth: 40)
-                            
-                            Button("Rotate Right") {
-                                rotation += 90
-                            }
-                            .buttonStyle(.bordered)
-                            
-                            Button("Reset") {
-                                rotation = 0
-                            }
-                            .buttonStyle(.bordered)
-                        }
-                    }
-                    
-                    // Scale Controls
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Scale Reference")
-                            .font(.headline)
-                        
-                        HStack {
-                            Text("Drag across a known dimension (e.g., 10 feet)")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            
-                            Spacer()
-                            
-                            if scalePixelsPerFoot > 0 {
-                                Text("\(String(format: "%.2f", scalePixelsPerFoot)) pixels/foot")
-                                    .font(.caption)
-                                    .fontWeight(.medium)
-                                    .foregroundColor(.blue)
-                            }
-                        }
-                        
-                        if scalePixelsPerFoot > 0 {
-                            HStack {
-                                Text("Known distance (feet):")
-                                
-                                TextField("Enter distance", value: $scalePixelsPerFoot, format: .number)
-                                    .textFieldStyle(.roundedBorder)
-                                    .frame(width: 100)
-                                
-                                Button("Set Scale") {
-                                    setScale()
-                                }
-                                .buttonStyle(.bordered)
-                            }
-                        }
-                    }
-                    
-                    // Image Info
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Image Information")
-                            .font(.headline)
-                        
-                        VStack(alignment: .leading, spacing: 4) {
-                            if let sourceName = job.sourceName {
-                                HStack {
-                                    Text("Source:")
-                                        .fontWeight(.medium)
-                                    Text(sourceName)
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-                            
-                            if let sourceUrl = job.sourceUrl {
-                                HStack {
-                                    Text("URL:")
-                                        .fontWeight(.medium)
-                                    Link(sourceUrl, destination: URL(string: sourceUrl) ?? URL(string: "https://example.com")!)
-                                        .font(.caption)
-                                }
-                            }
-                            
-                            if let parcelId = job.parcelId {
-                                HStack {
-                                    Text("Parcel ID:")
-                                        .fontWeight(.medium)
-                                    Text(parcelId)
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-                        }
-                        .font(.caption)
-                    }
-                }
-                .padding()
-                .background(Color.gray.opacity(0.05))
-                .cornerRadius(8)
                 
                 Spacer()
             }
-            .padding()
-            .frame(width: 700, height: 800)
+            .frame(minWidth: 1400)
+            .padding(.vertical)
         }
         .onAppear {
             loadImage()
@@ -223,6 +303,13 @@ struct ImageEditorView: View {
     
     private func loadImage() {
         image = NSImage(contentsOfFile: imagePath)
+        
+        // Load saved zoom and rotation values
+        zoomScale = CGFloat(job.zoomScale)
+        rotation = job.rotation
+        if job.scalePixelsPerFoot > 0 {
+            scalePixelsPerFoot = job.scalePixelsPerFoot
+        }
     }
     
     private func calculateScale(start: CGPoint, end: CGPoint) {
@@ -239,13 +326,18 @@ struct ImageEditorView: View {
     }
     
     private func saveChanges() {
+        print("💾 [ImageEditorView] Saving changes - Zoom: \(zoomScale), Rotation: \(rotation), Scale: \(scalePixelsPerFoot)")
+        
         job.scalePixelsPerFoot = scalePixelsPerFoot
+        job.zoomScale = Double(zoomScale)  // Convert CGFloat to Double for Core Data
+        job.rotation = rotation
         job.updatedAt = Date()
         
         do {
             try viewContext.save()
+            print("✅ [ImageEditorView] Successfully saved image changes")
         } catch {
-            print("Failed to save image changes: \(error)")
+            print("❌ [ImageEditorView] Failed to save image changes: \(error)")
         }
     }
 }

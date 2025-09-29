@@ -17,15 +17,22 @@ class ScrapingManager: ObservableObject {
     
     private var scrapingTask: Task<Void, Never>?
     private let scrapers: [PropertyScraper] = [
-        EnhancedHillsboroughCountyScraper(),
-        FallbackHillsboroughCountyScraper(),
-        PinellasCountyScraper(),
-        PascoCountyScraper()
+        // Commented out property appraiser scrapers - switching to Google Maps
+        // EnhancedHillsboroughCountyScraper(),
+        // FallbackHillsboroughCountyScraper(),
+        // PinellasCountyScraper(),
+        // PascoCountyScraper(),
+        GoogleMapsAerialScraper()
     ]
     
     func startScraping(context: NSManagedObjectContext) {
-        guard !isRunning else { return }
+        print("🔘 [ScrapingManager] startScraping() called")
+        guard !isRunning else { 
+            print("⚠️ [ScrapingManager] Already running, ignoring start request")
+            return 
+        }
         
+        print("🚀 [ScrapingManager] Starting scraping process")
         isRunning = true
         progress = 0.0
         
@@ -42,12 +49,14 @@ class ScrapingManager: ObservableObject {
     }
     
     private func performScraping(context: NSManagedObjectContext) async {
+        print("📋 [ScrapingManager] Fetching queued jobs...")
         let fetchRequest: NSFetchRequest<Job> = Job.fetchRequest()
         fetchRequest.predicate = NSPredicate(format: "status == %@", "queued")
         fetchRequest.sortDescriptors = [NSSortDescriptor(keyPath: \Job.createdAt, ascending: true)]
         
         do {
             let queuedJobs = try context.fetch(fetchRequest)
+            print("📊 [ScrapingManager] Found \(queuedJobs.count) queued jobs")
             let totalJobs = queuedJobs.count
             
             guard totalJobs > 0 else {
@@ -140,8 +149,9 @@ class ScrapingManager: ObservableObject {
                 
                 do {
                     try context.save()
+                    print("✅ [ScrapingManager] Successfully saved job \(job.jobId ?? "") as completed")
                 } catch {
-                    print("Failed to save job result: \(error)")
+                    print("❌ [ScrapingManager] Failed to save job result: \(error)")
                 }
                 
                 return // Success, exit the loop
@@ -161,8 +171,9 @@ class ScrapingManager: ObservableObject {
         
         do {
             try context.save()
+            print("✅ [ScrapingManager] Successfully saved job \(job.jobId ?? "") as failed")
         } catch {
-            print("Failed to save job failure: \(error)")
+            print("❌ [ScrapingManager] Failed to save job failure: \(error)")
         }
     }
 }

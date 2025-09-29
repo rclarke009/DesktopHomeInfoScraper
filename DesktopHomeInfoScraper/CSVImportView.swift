@@ -21,7 +21,8 @@ struct CSVImportView: View {
     
     var body: some View {
         NavigationView {
-            VStack(spacing: 24) {
+            ScrollView {
+                VStack(spacing: 24) {
                 // Header
                 VStack(spacing: 8) {
                     Image(systemName: "square.and.arrow.down")
@@ -175,10 +176,14 @@ struct CSVImportView: View {
                     .buttonStyle(BorderedProminentButtonStyle())
                     .disabled(selectedFile == nil || isImporting)
                 }
+                .padding()
+                }
             }
-            .padding()
-            .frame(minWidth: 600, idealWidth: 700, maxWidth: 800, minHeight: 500, idealHeight: 600, maxHeight: 700)
+            .frame(minWidth: 600, idealWidth: 800, maxWidth: 1000)
         }
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+        .frame(minHeight: 600, idealHeight: 700, maxHeight: 900)
         .fileImporter(
             isPresented: $showingFilePicker,
             allowedContentTypes: [.commaSeparatedText, .plainText],
@@ -207,6 +212,14 @@ struct CSVImportView: View {
         
         Task {
             do {
+                // Start accessing the security-scoped resource
+                let didStartAccessing = fileURL.startAccessingSecurityScopedResource()
+                defer {
+                    if didStartAccessing {
+                        fileURL.stopAccessingSecurityScopedResource()
+                    }
+                }
+                
                 let data = try Data(contentsOf: fileURL)
                 let content = String(data: data, encoding: .utf8) ?? ""
                 
@@ -245,7 +258,7 @@ struct CSVImportView: View {
                 }
             } catch {
                 await MainActor.run {
-                    importError = "Failed to read file: \(error.localizedDescription)"
+                    importError = "Failed to read file: \(error.localizedDescription). Please ensure you have permission to access this file."
                     isImporting = false
                 }
             }

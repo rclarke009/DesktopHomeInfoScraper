@@ -1,0 +1,11 @@
+//
+//  mockImportData.swift
+//  DesktopHomeInfoScraper
+//
+//  Created by Rebecca Clarke on 9/27/25.
+//
+
+JobID,Client,AddressLine1,City,State,Zip,Notes
+T2025-001,Johnson,4510 W Pearl Ave,Tampa,FL,33611,
+T2025-002,Smith,4512 W Pearl Ave,Tampa,FL,33611,
+T2025-003,Williams,4514 W Pearl Ave,Tampa,FL,33611,

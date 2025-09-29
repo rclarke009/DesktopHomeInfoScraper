@@ -21,6 +21,7 @@ struct ExportOptionsView: View {
     @State private var exportError: String?
     @State private var exportSuccess = false
     @State private var exportedPath: String?
+    @State private var showingFilePicker = false
     
     enum ExportFormat: String, CaseIterable {
         case jobIntakePackage = "Job Intake Package"
@@ -55,7 +56,8 @@ struct ExportOptionsView: View {
     
     var body: some View {
         NavigationView {
-            VStack(spacing: 24) {
+            ScrollView {
+                VStack(spacing: 24) {
                 // Header
                 VStack(spacing: 8) {
                     Image(systemName: "square.and.arrow.up")
@@ -243,19 +245,32 @@ struct ExportOptionsView: View {
                     }
                     .buttonStyle(.bordered)
                     
-                    Button("Export") {
-                        exportJob()
+                    Button("Choose Export Location") {
+                        showingFilePicker = true
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(isExporting)
                 }
+                }
+                .padding()
             }
-            .padding()
-            .frame(width: 500, height: 700)
+        }
+        .fileExporter(
+            isPresented: $showingFilePicker,
+            document: ExportDocument(),
+            contentType: .folder,
+            defaultFilename: "\(job.jobId ?? "Job")_Export"
+        ) { result in
+            switch result {
+            case .success(let url):
+                exportJob(to: url)
+            case .failure(let error):
+                exportError = "Failed to select location: \(error.localizedDescription)"
+            }
         }
     }
     
-    private func exportJob() {
+    private func exportJob(to url: URL) {
         isExporting = true
         exportError = nil
         exportSuccess = false
@@ -267,7 +282,8 @@ struct ExportOptionsView: View {
                     job: job,
                     format: exportFormat,
                     includeSourceDocs: includeSourceDocs,
-                    deliveryMethod: deliveryMethod
+                    deliveryMethod: deliveryMethod,
+                    exportURL: url
                 )
                 
                 await MainActor.run {
@@ -301,21 +317,16 @@ class JobExporter {
         job: Job,
         format: ExportOptionsView.ExportFormat,
         includeSourceDocs: Bool,
-        deliveryMethod: ExportOptionsView.DeliveryMethod
+        deliveryMethod: ExportOptionsView.DeliveryMethod,
+        exportURL: URL
     ) async throws -> ExportResult {
-        
-        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let exportsPath = documentsPath.appendingPathComponent("Exports")
-        
-        // Create Exports directory if it doesn't exist
-        try FileManager.default.createDirectory(at: exportsPath, withIntermediateDirectories: true)
         
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyyMMdd_HHmmss"
         let timestamp = formatter.string(from: Date())
         
         let packageName = "\(job.jobId ?? "Job")_\(timestamp)"
-        let packagePath = exportsPath.appendingPathComponent(packageName)
+        let packagePath = exportURL.appendingPathComponent(packageName)
         
         try FileManager.default.createDirectory(at: packagePath, withIntermediateDirectories: true)
         
@@ -405,7 +416,9 @@ class JobExporter {
                     url: job.sourceUrl,
                     fetchedAt: job.updatedAt
                 ),
-                scalePixelsPerFoot: job.scalePixelsPerFoot > 0 ? job.scalePixelsPerFoot : nil
+                scalePixelsPerFoot: job.scalePixelsPerFoot > 0 ? job.scalePixelsPerFoot : nil,
+                zoomScale: job.zoomScale > 1.0 ? job.zoomScale : nil,
+                rotation: job.rotation != 0.0 ? job.rotation : nil
             )
         )
     }
@@ -415,6 +428,21 @@ class JobExporter {
 
 struct ExportResult {
     let path: String
+}
+
+// Document class for file picker
+struct ExportDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.folder] }
+    
+    init() {}
+    
+    init(configuration: ReadConfiguration) throws {
+        // Not needed for our use case
+    }
+    
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        return FileWrapper(directoryWithFileWrappers: [:])
+    }
 }
 
 struct JobIntakeData: Codable {
@@ -443,6 +471,8 @@ struct OverheadData: Codable {
     let imageFile: String?
     let source: SourceData
     let scalePixelsPerFoot: Double?
+    let zoomScale: Double?
+    let rotation: Double?
 }
 
 struct SourceData: Codable {
