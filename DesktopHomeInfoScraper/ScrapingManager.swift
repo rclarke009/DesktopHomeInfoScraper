@@ -8,6 +8,9 @@
 import Foundation
 import CoreData
 import SwiftUI
+import MapKit
+import CoreLocation
+import AppKit
 
 @MainActor
 class ScrapingManager: ObservableObject {
@@ -106,8 +109,10 @@ class ScrapingManager: ObservableObject {
     }
     
     private func scrapeJob(job: Job, context: NSManagedObjectContext) async {
+        // Use cleaned address if available, fallback to original address
+        let addressToUse = job.cleanedAddressLine1 ?? job.addressLine1 ?? ""
         let address = ScrapeParams(
-            addressLine1: job.addressLine1 ?? "",
+            addressLine1: addressToUse,
             city: job.city ?? "",
             state: job.state ?? "",
             zip: job.zip
@@ -121,7 +126,7 @@ class ScrapingManager: ObservableObject {
                 let result = try await scraper.scrapeProperty(params: address)
                 
                 await MainActor.run {
-                    // Save the image
+                    // Save the overhead image
                     if let imageData = result.imageBuffer {
                         let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
                         let imagesPath = documentsPath.appendingPathComponent("Images")
@@ -135,8 +140,9 @@ class ScrapingManager: ObservableObject {
                         do {
                             try imageData.write(to: imageURL)
                             job.overheadImagePath = imageURL.path
+                            print("✅ [ScrapingManager] Saved overhead image: \(imageURL.path)")
                         } catch {
-                            print("Failed to save image: \(error)")
+                            print("❌ [ScrapingManager] Failed to save overhead image: \(error)")
                         }
                     }
                     
@@ -146,6 +152,9 @@ class ScrapingManager: ObservableObject {
                     job.status = "completed"
                     job.updatedAt = Date()
                 }
+                
+                // Generate and save wide view map
+                await generateWideViewMap(for: job, context: context)
                 
                 do {
                     try context.save()
@@ -174,6 +183,143 @@ class ScrapingManager: ObservableObject {
             print("✅ [ScrapingManager] Successfully saved job \(job.jobId ?? "") as failed")
         } catch {
             print("❌ [ScrapingManager] Failed to save job failure: \(error)")
+        }
+    }
+    
+    private func generateWideViewMap(for job: Job, context: NSManagedObjectContext) async {
+        // Build address string for geocoding
+        // Use cleaned address if available, fallback to original address
+        var addressParts: [String] = []
+        let addressToUse = job.cleanedAddressLine1 ?? job.addressLine1 ?? ""
+        if !addressToUse.isEmpty {
+            addressParts.append(addressToUse)
+        }
+        if let city = job.city, !city.isEmpty {
+            addressParts.append(city)
+        }
+        
+        // Combine state and zip with a space, not comma
+        var stateZip: [String] = []
+        if let state = job.state, !state.isEmpty {
+            stateZip.append(state)
+        }
+        if let zip = job.zip, !zip.isEmpty {
+            stateZip.append(zip)
+        }
+        if !stateZip.isEmpty {
+            addressParts.append(stateZip.joined(separator: " "))
+        }
+        
+        let addressString = addressParts.joined(separator: ", ")
+        
+        guard !addressString.isEmpty else {
+            print("⚠️ [ScrapingManager] Cannot generate map - empty address")
+            return
+        }
+        
+        // Geocode the address
+        return await withCheckedContinuation { continuation in
+            let geocoder = CLGeocoder()
+            geocoder.geocodeAddressString(addressString) { placemarks, error in
+                if let error = error {
+                    print("⚠️ [ScrapingManager] Geocoding failed for map: \(error.localizedDescription)")
+                    continuation.resume()
+                    return
+                }
+                
+                guard let placemark = placemarks?.first,
+                      let location = placemark.location else {
+                    print("⚠️ [ScrapingManager] No location found for map: \(addressString)")
+                    continuation.resume()
+                    return
+                }
+                
+                let coordinate = location.coordinate
+                print("✅ [ScrapingManager] Geocoded for map: \(coordinate.latitude), \(coordinate.longitude)")
+                
+                // Generate map image showing Florida with property location
+                Task { @MainActor in
+                    let mapImage = await self.createWideViewMapImage(coordinate: coordinate, jobId: job.jobId ?? "job")
+                    
+                    if let mapImage = mapImage {
+                        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                        let imagesPath = documentsPath.appendingPathComponent("Images")
+                        
+                        // Create Images directory if it doesn't exist
+                        try? FileManager.default.createDirectory(at: imagesPath, withIntermediateDirectories: true)
+                        
+                        let mapFileName = "\(job.jobId ?? UUID().uuidString)_location_map.png"
+                        let mapURL = imagesPath.appendingPathComponent(mapFileName)
+                        
+                        if let tiffData = mapImage.tiffRepresentation,
+                           let bitmapImage = NSBitmapImageRep(data: tiffData),
+                           let pngData = bitmapImage.representation(using: .png, properties: [:]) {
+                            do {
+                                try pngData.write(to: mapURL)
+                                print("✅ [ScrapingManager] Saved wide view map: \(mapURL.path)")
+                            } catch {
+                                print("❌ [ScrapingManager] Failed to save map: \(error)")
+                            }
+                        }
+                    }
+                    
+                    continuation.resume()
+                }
+            }
+        }
+    }
+    
+    private func createWideViewMapImage(coordinate: CLLocationCoordinate2D, jobId: String) async -> NSImage? {
+        // Florida approximate bounds for map region
+        let floridaCenter = CLLocationCoordinate2D(latitude: 28.5, longitude: -82.0)
+        let floridaSpan = MKCoordinateSpan(latitudeDelta: 6.0, longitudeDelta: 8.0)
+        let region = MKCoordinateRegion(center: floridaCenter, span: floridaSpan)
+        
+        // Use MKMapSnapshotter for image export
+        let options = MKMapSnapshotter.Options()
+        options.region = region
+        options.size = NSSize(width: 800, height: 600)
+        options.mapType = .standard
+        
+        return await withCheckedContinuation { continuation in
+            let snapshotter = MKMapSnapshotter(options: options)
+            snapshotter.start { snapshot, error in
+                guard let snapshot = snapshot else {
+                    print("⚠️ [ScrapingManager] Map snapshot failed")
+                    continuation.resume(returning: nil)
+                    return
+                }
+                
+                let image = snapshot.image
+                
+                // Draw annotation on the image
+                let finalImage = NSImage(size: image.size)
+                finalImage.lockFocus()
+                image.draw(at: .zero, from: .zero, operation: .sourceOver, fraction: 1.0)
+                
+                // Calculate annotation position
+                let point = snapshot.point(for: coordinate)
+                let annotationSize: CGFloat = 20
+                let annotationRect = NSRect(
+                    x: point.x - annotationSize / 2,
+                    y: point.y - annotationSize / 2,
+                    width: annotationSize,
+                    height: annotationSize
+                )
+                
+                // Draw red pin
+                NSColor.red.setFill()
+                let path = NSBezierPath(ovalIn: annotationRect)
+                path.fill()
+                
+                // Draw white border
+                NSColor.white.setStroke()
+                path.lineWidth = 2
+                path.stroke()
+                
+                finalImage.unlockFocus()
+                continuation.resume(returning: finalImage)
+            }
         }
     }
 }

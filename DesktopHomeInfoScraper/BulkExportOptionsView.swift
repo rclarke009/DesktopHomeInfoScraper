@@ -8,6 +8,37 @@
 import SwiftUI
 import CoreData
 import UniformTypeIdentifiers
+import MapKit
+import CoreLocation
+
+// Helper function to format address with proper handling of missing components
+private func formatAddress(job: Job) -> String {
+    var components: [String] = []
+    
+    // Use cleaned address if available, fallback to original
+    let addressToUse = job.cleanedAddressLine1 ?? job.addressLine1 ?? ""
+    if !addressToUse.isEmpty {
+        components.append(addressToUse)
+    }
+    
+    if let city = job.city, !city.isEmpty {
+        components.append(city)
+    }
+    
+    var cityStateZip: [String] = []
+    if let state = job.state, !state.isEmpty {
+        cityStateZip.append(state)
+    }
+    if let zip = job.zip, !zip.isEmpty {
+        cityStateZip.append(zip)
+    }
+    
+    if !cityStateZip.isEmpty {
+        components.append(cityStateZip.joined(separator: " "))
+    }
+    
+    return components.isEmpty ? "No address" : components.joined(separator: ", ")
+}
 
 struct BulkExportOptionsView: View {
     let jobs: [Job]
@@ -448,8 +479,27 @@ class BulkJobExporter {
             
             try FileManager.default.copyItem(at: imageURL, to: destinationURL)
             
-            let progress = 0.1 + (Double(index + 1) / Double(jobsWithImages.count)) * 0.8
+            let progress = 0.1 + (Double(index + 1) / Double(jobsWithImages.count)) * 0.5
             progressCallback(progress, "Copied image for \(job.jobId ?? "job")")
+        }
+        
+        // Create map directory and export map images
+        let mapPath = packagePath.appendingPathComponent("map")
+        try FileManager.default.createDirectory(at: mapPath, withIntermediateDirectories: true)
+        
+        let totalJobs = jobs.count
+        for (index, job) in jobs.enumerated() {
+            if let mapImage = try await generateMapImage(for: job) {
+                let mapImageURL = mapPath.appendingPathComponent("\(job.jobId ?? "job")_location_map.png")
+                if let tiffData = mapImage.tiffRepresentation,
+                   let bitmapImage = NSBitmapImageRep(data: tiffData),
+                   let pngData = bitmapImage.representation(using: .png, properties: [:]) {
+                    try pngData.write(to: mapImageURL)
+                }
+            }
+            
+            let progress = 0.6 + (Double(index + 1) / Double(totalJobs)) * 0.3
+            progressCallback(progress, "Generated map for \(job.jobId ?? "job")")
         }
         
         // Create source_docs directory if requested
@@ -506,6 +556,8 @@ class BulkJobExporter {
                 zip: job.zip
             ),
             notes: job.notes,
+            phoneNumber: job.phoneNumber,
+            areasOfConcern: job.areasOfConcern,
             overhead: OverheadData(
                 imageFile: job.overheadImagePath != nil ? "overhead/\(job.jobId ?? "job")_overhead.jpg" : nil,
                 source: SourceData(
@@ -518,6 +570,80 @@ class BulkJobExporter {
                 rotation: job.rotation != 0.0 ? job.rotation : nil
             )
         )
+    }
+    
+    private func generateMapImage(for job: Job) async throws -> NSImage? {
+        // Use formatAddress helper which handles cleaned address and proper formatting
+        let addressString = formatAddress(job: job)
+        
+        return try await withCheckedThrowingContinuation { continuation in
+            let geocoder = CLGeocoder()
+            geocoder.geocodeAddressString(addressString) { placemarks, error in
+                if let error = error {
+                    print("⚠️ [BulkJobExporter] Geocoding failed: \(error.localizedDescription)")
+                    continuation.resume(returning: nil)
+                    return
+                }
+                
+                guard let placemark = placemarks?.first,
+                      let location = placemark.location else {
+                    print("⚠️ [BulkJobExporter] No location found for address: \(addressString)")
+                    continuation.resume(returning: nil)
+                    return
+                }
+                
+                let coordinate = location.coordinate
+                
+                // Florida approximate bounds for map region
+                let floridaCenter = CLLocationCoordinate2D(latitude: 28.5, longitude: -82.0)
+                let floridaSpan = MKCoordinateSpan(latitudeDelta: 6.0, longitudeDelta: 8.0)
+                let region = MKCoordinateRegion(center: floridaCenter, span: floridaSpan)
+                
+                // Use MKMapSnapshotter for image export
+                let options = MKMapSnapshotter.Options()
+                options.region = region
+                options.size = NSSize(width: 800, height: 600)
+                options.mapType = .standard
+                
+                let snapshotter = MKMapSnapshotter(options: options)
+                snapshotter.start { snapshot, error in
+                    guard let snapshot = snapshot else {
+                        continuation.resume(returning: nil)
+                        return
+                    }
+                    
+                    let image = snapshot.image
+                    
+                    // Draw annotation on the image
+                    let finalImage = NSImage(size: image.size)
+                    finalImage.lockFocus()
+                    image.draw(at: .zero, from: .zero, operation: .sourceOver, fraction: 1.0)
+                    
+                    // Calculate annotation position
+                    let point = snapshot.point(for: coordinate)
+                    let annotationSize: CGFloat = 20
+                    let annotationRect = NSRect(
+                        x: point.x - annotationSize / 2,
+                        y: point.y - annotationSize / 2,
+                        width: annotationSize,
+                        height: annotationSize
+                    )
+                    
+                    // Draw red pin
+                    NSColor.red.setFill()
+                    let path = NSBezierPath(ovalIn: annotationRect)
+                    path.fill()
+                    
+                    // Draw white border
+                    NSColor.white.setStroke()
+                    path.lineWidth = 2
+                    path.stroke()
+                    
+                    finalImage.unlockFocus()
+                    continuation.resume(returning: finalImage)
+                }
+            }
+        }
     }
 }
 

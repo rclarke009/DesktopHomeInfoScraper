@@ -9,6 +9,35 @@ import SwiftUI
 import CoreData
 import UniformTypeIdentifiers
 
+// Helper function to format address with proper handling of missing components
+private func formatAddress(job: Job) -> String {
+    var components: [String] = []
+    
+    // Use cleaned address if available, fallback to original
+    let addressToUse = job.cleanedAddressLine1 ?? job.addressLine1 ?? ""
+    if !addressToUse.isEmpty {
+        components.append(addressToUse)
+    }
+    
+    if let city = job.city, !city.isEmpty {
+        components.append(city)
+    }
+    
+    var cityStateZip: [String] = []
+    if let state = job.state, !state.isEmpty {
+        cityStateZip.append(state)
+    }
+    if let zip = job.zip, !zip.isEmpty {
+        cityStateZip.append(zip)
+    }
+    
+    if !cityStateZip.isEmpty {
+        components.append(cityStateZip.joined(separator: " "))
+    }
+    
+    return components.isEmpty ? "No address" : components.joined(separator: ", ")
+}
+
 struct ContentView: View {
     @Environment(\.managedObjectContext) private var viewContext
     @StateObject private var scrapingManager = ScrapingManager()
@@ -466,7 +495,7 @@ struct JobRowView: View {
                     .font(.headline)
                     .fontWeight(.medium)
                 
-                Text("\(job.addressLine1 ?? ""), \(job.city ?? ""), \(job.state ?? "")")
+                Text(formatAddress(job: job))
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                 

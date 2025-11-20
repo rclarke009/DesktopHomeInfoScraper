@@ -47,6 +47,12 @@ struct JobDetailView: View {
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
+                    
+                    if let phoneNumber = job.phoneNumber, !phoneNumber.isEmpty {
+                        Text("Phone: \(phoneNumber)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding()
@@ -259,6 +265,9 @@ struct JobDetailView: View {
                         .background(Color.gray.opacity(0.05))
                         .cornerRadius(6)
                     }
+                    
+                    // Property Location Map
+                    PropertyLocationMap(job: job)
                 } else if job.status == "failed" {
                     // Error Display
                     VStack(spacing: 16) {

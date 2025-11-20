@@ -4,10 +4,13 @@
         <attribute name="jobId" optional="NO" attributeType="String"/>
         <attribute name="clientName" optional="YES" attributeType="String"/>
         <attribute name="addressLine1" optional="NO" attributeType="String"/>
+        <attribute name="cleanedAddressLine1" optional="YES" attributeType="String"/>
         <attribute name="city" optional="NO" attributeType="String"/>
         <attribute name="state" optional="NO" attributeType="String"/>
         <attribute name="zip" optional="YES" attributeType="String"/>
         <attribute name="notes" optional="YES" attributeType="String"/>
+        <attribute name="phoneNumber" optional="YES" attributeType="String"/>
+        <attribute name="areasOfConcern" optional="YES" attributeType="String"/>
         <attribute name="status" optional="NO" attributeType="String" defaultValueString="queued"/>
         <attribute name="createdAt" optional="NO" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="updatedAt" optional="NO" attributeType="Date" usesScalarValueType="NO"/>

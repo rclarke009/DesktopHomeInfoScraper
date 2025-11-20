@@ -8,6 +8,7 @@
 import Foundation
 import WebKit
 import SwiftUI
+import CoreLocation
 
 class WebScrapingEngine: NSObject, ObservableObject {
     private var webView: WKWebView
@@ -66,15 +67,72 @@ class WebScrapingEngine: NSObject, ObservableObject {
         self.isSearching = false
         self.currentParams = params  // Set the current parameters
         
-        // Use Google Static Maps API instead of web scraping
-        let fullAddress = "\(params.addressLine1), \(params.city), \(params.state)"
-        let encodedAddress = fullAddress.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        // Build full address string
+        var addressParts: [String] = []
+        if !params.addressLine1.isEmpty {
+            addressParts.append(params.addressLine1)
+        }
+        if !params.city.isEmpty {
+            addressParts.append(params.city)
+        }
+        if !params.state.isEmpty {
+            addressParts.append(params.state)
+        }
+        if let zip = params.zip, !zip.isEmpty {
+            addressParts.append(zip)
+        }
         
+        let fullAddress = addressParts.joined(separator: ", ")
+        
+        guard !fullAddress.isEmpty else {
+            print("❌ [WebScrapingEngine] Empty address provided")
+            completeWithResult(.failure(ScrapingError.missingParameters))
+            return
+        }
+        
+        print("🗺️ [WebScrapingEngine] Full address: \(fullAddress)")
+        
+        // First, geocode the address to get coordinates
+        let geocoder = CLGeocoder()
+        geocoder.geocodeAddressString(fullAddress) { [weak self] placemarks, error in
+            guard let self = self else { return }
+            
+            if let error = error {
+                print("❌ [WebScrapingEngine] Geocoding failed: \(error.localizedDescription)")
+                // Fall back to using address string directly
+                self.downloadStaticMapImage(address: fullAddress, completionHandler: completionHandler)
+                return
+            }
+            
+            guard let placemark = placemarks?.first,
+                  let location = placemark.location else {
+                print("⚠️ [WebScrapingEngine] No location found, using address string")
+                // Fall back to using address string directly
+                self.downloadStaticMapImage(address: fullAddress, completionHandler: completionHandler)
+                return
+            }
+            
+            let coordinate = location.coordinate
+            print("✅ [WebScrapingEngine] Geocoded to: \(coordinate.latitude), \(coordinate.longitude)")
+            
+            // Use coordinates for more reliable Static Maps API call
+            self.downloadStaticMapImage(coordinate: coordinate, address: fullAddress, completionHandler: completionHandler)
+        }
+    }
+    
+    private func downloadStaticMapImage(coordinate: CLLocationCoordinate2D? = nil, address: String, completionHandler: @escaping (Result<ScrapeResult, Error>) -> Void) {
         // Construct Static Maps API URL for satellite imagery
-        // Note: Add your Google Maps API key here. Get one from: https://console.cloud.google.com/google/maps-apis/overview
-        let apiKey = "AIzaSyBJqaMMXkcJTT2Z37Ye9NNCGlXqXyEJ9Uc" // Add your API key here: "YOUR_API_KEY_HERE"
+        let apiKey = "AIzaSyBJqaMMXkcJTT2Z37Ye9NNCGlXqXyEJ9Uc"
         
-        var staticMapsURL = "https://maps.googleapis.com/maps/api/staticmap?center=\(encodedAddress)&zoom=21&size=800x600&maptype=satellite&format=png"
+        var staticMapsURL: String
+        if let coord = coordinate {
+            // Use coordinates (more reliable)
+            staticMapsURL = "https://maps.googleapis.com/maps/api/staticmap?center=\(coord.latitude),\(coord.longitude)&zoom=21&size=800x600&maptype=satellite&format=png"
+        } else {
+            // Fall back to address string
+            let encodedAddress = address.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+            staticMapsURL = "https://maps.googleapis.com/maps/api/staticmap?center=\(encodedAddress)&zoom=21&size=800x600&maptype=satellite&format=png"
+        }
         
         if !apiKey.isEmpty {
             staticMapsURL += "&key=\(apiKey)"
