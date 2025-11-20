@@ -445,14 +445,82 @@ struct CSVImportView: View {
                     continue
                 }
                 
+                // Parse city field in case it contains state and zip
+                var cityValue = columns[city].trimmingCharacters(in: .whitespaces)
+                var stateValue = columns[state].trimmingCharacters(in: .whitespaces)
+                var zipValue = zipIndex.flatMap { columns.indices.contains($0) ? columns[$0].trimmingCharacters(in: .whitespaces) : nil }
+                
+                // If state and zip are empty but city might contain them, try to parse
+                // Also check if city ends with state/zip pattern even if state/zip columns have values
+                if !cityValue.isEmpty {
+                    let cityParts = cityValue.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+                    
+                    // Look for state abbreviation (2 letters, uppercase) followed by zip (5 digits)
+                    // Search from the end backwards to find the last occurrence
+                    for i in stride(from: cityParts.count - 1, through: 0, by: -1) {
+                        let part = cityParts[i]
+                        
+                        // Check if it's a zip code (5 digits)
+                        if part.count == 5, let _ = Int(part) {
+                            // Found zip, check if previous part is state
+                            if i > 0 {
+                                let prevPart = cityParts[i - 1]
+                                // Check if it's a state (2 letters, uppercase)
+                                if prevPart.count == 2 && prevPart.allSatisfy({ $0.isLetter }) && prevPart.uppercased() == prevPart {
+                                    // Found state and zip in city field
+                                    // Only use these if state/zip columns are empty
+                                    if stateValue.isEmpty {
+                                        stateValue = prevPart
+                                    }
+                                    if zipValue == nil || zipValue!.isEmpty {
+                                        zipValue = part
+                                    }
+                                    // City is everything before the state
+                                    if i > 1 {
+                                        cityValue = cityParts[0..<(i-1)].joined(separator: " ")
+                                    } else {
+                                        cityValue = ""
+                                    }
+                                    break
+                                }
+                            }
+                        }
+                        
+                        // Also check if it's a state (2 letters, uppercase) followed by zip
+                        if part.count == 2 && part.allSatisfy({ $0.isLetter }) && part.uppercased() == part {
+                            // Found potential state, check if next part is zip
+                            if i + 1 < cityParts.count {
+                                let nextPart = cityParts[i + 1]
+                                if nextPart.count == 5, let _ = Int(nextPart) {
+                                    // Found state and zip in city field
+                                    // Only use these if state/zip columns are empty
+                                    if stateValue.isEmpty {
+                                        stateValue = part
+                                    }
+                                    if zipValue == nil || zipValue!.isEmpty {
+                                        zipValue = nextPart
+                                    }
+                                    // City is everything before the state
+                                    if i > 0 {
+                                        cityValue = cityParts[0..<i].joined(separator: " ")
+                                    } else {
+                                        cityValue = ""
+                                    }
+                                    break
+                                }
+                            }
+                        }
+                    }
+                }
+                
                 let job = CSVJobData(
                     jobId: jobIdIndex.flatMap { columns.indices.contains($0) ? columns[$0] : nil },
                     name: nil,
                     clientName: columns[client],
                     addressLine1: columns[address],
-                    city: columns[city],
-                    state: columns[state],
-                    zip: zipIndex.flatMap { columns.indices.contains($0) ? columns[$0] : nil },
+                    city: cityValue,
+                    state: stateValue,
+                    zip: zipValue,
                     notes: notesIndex.flatMap { columns.indices.contains($0) ? columns[$0] : nil },
                     inspectionDate: nil,
                     windowTestStatus: nil,
@@ -561,9 +629,149 @@ struct CSVImportView: View {
                 zip = stateZipParts[1]
             }
         } else if components.count == 2 {
-            // Format: "123 Main St, City"
+            // Format: "123 Main St, City" or "123 Main St City, FL 12345" or "123 Main St, FL 12345"
             line1 = components[0]
-            city = components[1]
+            let secondComponent = components[1]
+            
+            // Parse second component for state/zip pattern
+            let secondParts = secondComponent.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+            
+            // Check if second component contains state/zip pattern
+            var foundStateZip = false
+            for i in stride(from: secondParts.count - 1, through: 0, by: -1) {
+                let part = secondParts[i]
+                
+                // Check if it's a zip code (5 digits)
+                if part.count == 5, let _ = Int(part) {
+                    // Found zip, check if previous part is state
+                    if i > 0 {
+                        let prevPart = secondParts[i - 1]
+                        // Check if it's a state (2 letters, uppercase or lowercase)
+                        if prevPart.count == 2 && prevPart.allSatisfy({ $0.isLetter }) {
+                            // Found state and zip in second component
+                            state = prevPart.uppercased()
+                            zip = part
+                            // City is everything before state in second component, or extract from first component
+                            if i > 1 {
+                                // There's content before state+zip in second component, use that as city
+                                city = secondParts[0..<(i-1)].joined(separator: " ")
+                            } else {
+                                // Second component is just state+zip, extract city from end of first component
+                                // (e.g., "9309 N. 21 St. Tampa" -> "Tampa")
+                                let firstParts = components[0].components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+                                if firstParts.count > 1 {
+                                    // Try to extract city from the last word(s) of first component
+                                    let lastWord = firstParts[firstParts.count - 1]
+                                    // Remove common punctuation
+                                    let cleanLastWord = lastWord.trimmingCharacters(in: CharacterSet(charactersIn: ".,;:"))
+                                    
+                                    // If it doesn't look like part of street address, it's likely the city
+                                    let lowerLast = cleanLastWord.lowercased()
+                                    if !lowerLast.hasSuffix("st") && 
+                                       !lowerLast.hasSuffix("ave") && 
+                                       !lowerLast.hasSuffix("rd") && 
+                                       !lowerLast.hasSuffix("dr") &&
+                                       !lowerLast.hasSuffix("blvd") &&
+                                       !lowerLast.hasSuffix("ln") &&
+                                       !lowerLast.hasSuffix("ct") &&
+                                       !lowerLast.hasSuffix("way") &&
+                                       !lowerLast.hasSuffix("pl") &&
+                                       cleanLastWord.count > 2 &&
+                                       !cleanLastWord.allSatisfy({ $0.isNumber }) {
+                                        city = cleanLastWord
+                                        line1 = firstParts[0..<(firstParts.count - 1)].joined(separator: " ")
+                                    } else {
+                                        // Try second-to-last word if last word looks like street type
+                                        if firstParts.count > 2 {
+                                            let secondLastWord = firstParts[firstParts.count - 2]
+                                            let cleanSecondLast = secondLastWord.trimmingCharacters(in: CharacterSet(charactersIn: ".,;:"))
+                                            if cleanSecondLast.count > 2 && !cleanSecondLast.allSatisfy({ $0.isNumber }) {
+                                                city = cleanSecondLast
+                                                line1 = firstParts[0..<(firstParts.count - 2)].joined(separator: " ")
+                                            } else {
+                                                city = ""
+                                            }
+                                        } else {
+                                            city = ""
+                                        }
+                                    }
+                                } else {
+                                    city = ""
+                                }
+                            }
+                            foundStateZip = true
+                            break
+                        }
+                    }
+                }
+                
+                // Check if it's a state (2 letters) followed by zip
+                if part.count == 2 && part.allSatisfy({ $0.isLetter }) {
+                    // Check if next part is zip
+                    if i + 1 < secondParts.count {
+                        let nextPart = secondParts[i + 1]
+                        if nextPart.count == 5, let _ = Int(nextPart) {
+                            // Found state and zip
+                            state = part.uppercased()
+                            zip = nextPart
+                            // City is everything before state in second component, or extract from first component
+                            if i > 0 {
+                                // There's content before state+zip in second component, use that as city
+                                city = secondParts[0..<i].joined(separator: " ")
+                            } else {
+                                // Second component is just state+zip, extract city from end of first component
+                                let firstParts = components[0].components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+                                if firstParts.count > 1 {
+                                    // Try to extract city from the last word(s) of first component
+                                    let lastWord = firstParts[firstParts.count - 1]
+                                    // Remove common punctuation
+                                    let cleanLastWord = lastWord.trimmingCharacters(in: CharacterSet(charactersIn: ".,;:"))
+                                    
+                                    // If it doesn't look like part of street address, it's likely the city
+                                    let lowerLast = cleanLastWord.lowercased()
+                                    if !lowerLast.hasSuffix("st") && 
+                                       !lowerLast.hasSuffix("ave") && 
+                                       !lowerLast.hasSuffix("rd") && 
+                                       !lowerLast.hasSuffix("dr") &&
+                                       !lowerLast.hasSuffix("blvd") &&
+                                       !lowerLast.hasSuffix("ln") &&
+                                       !lowerLast.hasSuffix("ct") &&
+                                       !lowerLast.hasSuffix("way") &&
+                                       !lowerLast.hasSuffix("pl") &&
+                                       cleanLastWord.count > 2 &&
+                                       !cleanLastWord.allSatisfy({ $0.isNumber }) {
+                                        city = cleanLastWord
+                                        line1 = firstParts[0..<(firstParts.count - 1)].joined(separator: " ")
+                                    } else {
+                                        // Try second-to-last word if last word looks like street type
+                                        if firstParts.count > 2 {
+                                            let secondLastWord = firstParts[firstParts.count - 2]
+                                            let cleanSecondLast = secondLastWord.trimmingCharacters(in: CharacterSet(charactersIn: ".,;:"))
+                                            if cleanSecondLast.count > 2 && !cleanSecondLast.allSatisfy({ $0.isNumber }) {
+                                                city = cleanSecondLast
+                                                line1 = firstParts[0..<(firstParts.count - 2)].joined(separator: " ")
+                                            } else {
+                                                city = ""
+                                            }
+                                        } else {
+                                            city = ""
+                                        }
+                                    }
+                                } else {
+                                    city = ""
+                                }
+                            }
+                            foundStateZip = true
+                            break
+                        }
+                    }
+                }
+            }
+            
+            // If we didn't find state/zip pattern, treat second component as city
+            if !foundStateZip {
+                city = secondComponent
+            }
         } else {
             // No commas - try to parse "5018 E 122nd Ave. Temple Terrace 33617"
             // Look for state abbreviation (2 letters) or zip code (5 digits)
