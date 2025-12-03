@@ -420,7 +420,14 @@ class BulkJobExporter {
         formatter.dateFormat = "yyyyMMdd_HHmmss"
         let timestamp = formatter.string(from: Date())
         
-        let packageName = "BulkExport_\(jobs.count)jobs_\(timestamp)"
+        let packageName: String
+        switch format {
+        case .jobIntakePackage:
+            packageName = "BulkExport_JobIntake_\(jobs.count)jobs_\(timestamp)"
+        case .fieldResultsPackage:
+            packageName = "BulkExport_FieldReport_\(jobs.count)jobs_\(timestamp)"
+        }
+        
         let packagePath = exportURL.appendingPathComponent(packageName)
         
         try FileManager.default.createDirectory(at: packagePath, withIntermediateDirectories: true)

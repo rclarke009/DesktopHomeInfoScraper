@@ -356,7 +356,14 @@ class JobExporter {
         formatter.dateFormat = "yyyyMMdd_HHmmss"
         let timestamp = formatter.string(from: Date())
         
-        let packageName = "\(job.jobId ?? "Job")_\(timestamp)"
+        let packageName: String
+        switch format {
+        case .jobIntakePackage:
+            packageName = "\(job.jobId ?? "Job")_JobIntake_\(timestamp)"
+        case .fieldResultsPackage:
+            packageName = "\(job.jobId ?? "Job")_FieldReport_\(timestamp)"
+        }
+        
         let packagePath = exportURL.appendingPathComponent(packageName)
         
         try FileManager.default.createDirectory(at: packagePath, withIntermediateDirectories: true)
