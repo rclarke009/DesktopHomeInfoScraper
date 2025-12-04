@@ -61,7 +61,7 @@ struct ExportOptionsView: View {
         var description: String {
             switch self {
             case .jobIntakePackage:
-                return "Export for iPad import (JSON + images)"
+                return "Export for iPad import (Structure + images)"
             case .fieldResultsPackage:
                 return "Export field results (CSV + photos + report)"
             }
@@ -353,15 +353,15 @@ class JobExporter {
     ) async throws -> ExportResult {
         
         let formatter = DateFormatter()
-        formatter.dateFormat = "yyyyMMdd_HHmmss"
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
         let timestamp = formatter.string(from: Date())
         
         let packageName: String
         switch format {
         case .jobIntakePackage:
-            packageName = "\(job.jobId ?? "Job")_JobIntake_\(timestamp)"
+            packageName = "\(job.jobId ?? "Job")-JobIntake-\(timestamp)"
         case .fieldResultsPackage:
-            packageName = "\(job.jobId ?? "Job")_FieldReport_\(timestamp)"
+            packageName = "\(job.jobId ?? "Job")-FieldReport-\(timestamp)"
         }
         
         let packagePath = exportURL.appendingPathComponent(packageName)
@@ -397,7 +397,7 @@ class JobExporter {
         
         if let imagePath = job.overheadImagePath {
             let imageURL = URL(fileURLWithPath: imagePath)
-            let destinationURL = overheadPath.appendingPathComponent("\(job.jobId ?? "job")_overhead.jpg")
+            let destinationURL = overheadPath.appendingPathComponent("\(job.jobId ?? "job")-overhead.jpg")
             try FileManager.default.copyItem(at: imageURL, to: destinationURL)
         }
         
@@ -406,7 +406,7 @@ class JobExporter {
         try FileManager.default.createDirectory(at: mapPath, withIntermediateDirectories: true)
         
         if let mapImage = try await generateMapImage(for: job) {
-            let mapImageURL = mapPath.appendingPathComponent("\(job.jobId ?? "job")_location_map.png")
+            let mapImageURL = mapPath.appendingPathComponent("\(job.jobId ?? "job")-location-map.png")
             if let tiffData = mapImage.tiffRepresentation,
                let bitmapImage = NSBitmapImageRep(data: tiffData),
                let pngData = bitmapImage.representation(using: .png, properties: [:]) {
@@ -537,7 +537,7 @@ class JobExporter {
             phoneNumber: job.phoneNumber,
             areasOfConcern: job.areasOfConcern,
             overhead: OverheadData(
-                imageFile: job.overheadImagePath != nil ? "overhead/\(job.jobId ?? "job")_overhead.jpg" : nil,
+                imageFile: job.overheadImagePath != nil ? "overhead/\(job.jobId ?? "job")-overhead.jpg" : nil,
                 source: SourceData(
                     name: job.sourceName,
                     url: job.sourceUrl,

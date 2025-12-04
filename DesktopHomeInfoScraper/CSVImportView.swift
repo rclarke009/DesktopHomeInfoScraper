@@ -400,14 +400,14 @@ struct CSVImportView: View {
                        !tenantName.isEmpty {
                         clientNameValue = tenantName
                     } else {
-                        clientNameValue = "Unknown"
+                        clientNameValue = "Sunshine Portfolio"
                     }
                 }
                 
                 let job = CSVJobData(
                     jobId: jobIdIndex.flatMap { columns.indices.contains($0) ? columns[$0] : nil },
                     name: nameIndex.flatMap { columns.indices.contains($0) ? columns[$0] : nil },
-                    clientName: clientNameValue.isEmpty ? "Unknown" : clientNameValue,
+                    clientName: clientNameValue.isEmpty ? "Sunshine Portfolio" : clientNameValue,
                     addressLine1: parsedAddress.line1,
                     city: parsedAddress.city,
                     state: parsedAddress.state,

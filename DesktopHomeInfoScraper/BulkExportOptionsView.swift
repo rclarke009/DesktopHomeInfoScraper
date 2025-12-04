@@ -63,7 +63,7 @@ struct BulkExportOptionsView: View {
         var description: String {
             switch self {
             case .jobIntakePackage:
-                return "Export all jobs for iPad import (JSON + images)"
+                return "Export all jobs for iPad import (Structure + images)"
             case .fieldResultsPackage:
                 return "Export field results (CSV + photos + report)"
             }
@@ -417,15 +417,15 @@ class BulkJobExporter {
     ) async throws -> ExportResult {
         
         let formatter = DateFormatter()
-        formatter.dateFormat = "yyyyMMdd_HHmmss"
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
         let timestamp = formatter.string(from: Date())
         
         let packageName: String
         switch format {
         case .jobIntakePackage:
-            packageName = "BulkExport_JobIntake_\(jobs.count)jobs_\(timestamp)"
+            packageName = "BulkExport-JobIntake-\(jobs.count)jobs-\(timestamp)"
         case .fieldResultsPackage:
-            packageName = "BulkExport_FieldReport_\(jobs.count)jobs_\(timestamp)"
+            packageName = "BulkExport-FieldReport-\(jobs.count)jobs-\(timestamp)"
         }
         
         let packagePath = exportURL.appendingPathComponent(packageName)
@@ -482,7 +482,7 @@ class BulkJobExporter {
             guard let imagePath = job.overheadImagePath else { continue }
             
             let imageURL = URL(fileURLWithPath: imagePath)
-            let destinationURL = overheadPath.appendingPathComponent("\(job.jobId ?? "job")_overhead.jpg")
+            let destinationURL = overheadPath.appendingPathComponent("\(job.jobId ?? "job")-overhead.jpg")
             
             try FileManager.default.copyItem(at: imageURL, to: destinationURL)
             
@@ -497,7 +497,7 @@ class BulkJobExporter {
         let totalJobs = jobs.count
         for (index, job) in jobs.enumerated() {
             if let mapImage = try await generateMapImage(for: job) {
-                let mapImageURL = mapPath.appendingPathComponent("\(job.jobId ?? "job")_location_map.png")
+                let mapImageURL = mapPath.appendingPathComponent("\(job.jobId ?? "job")-location-map.png")
                 if let tiffData = mapImage.tiffRepresentation,
                    let bitmapImage = NSBitmapImageRep(data: tiffData),
                    let pngData = bitmapImage.representation(using: .png, properties: [:]) {
@@ -566,7 +566,7 @@ class BulkJobExporter {
             phoneNumber: job.phoneNumber,
             areasOfConcern: job.areasOfConcern,
             overhead: OverheadData(
-                imageFile: job.overheadImagePath != nil ? "overhead/\(job.jobId ?? "job")_overhead.jpg" : nil,
+                imageFile: job.overheadImagePath != nil ? "overhead/\(job.jobId ?? "job")-overhead.jpg" : nil,
                 source: SourceData(
                     name: job.sourceName,
                     url: job.sourceUrl,
