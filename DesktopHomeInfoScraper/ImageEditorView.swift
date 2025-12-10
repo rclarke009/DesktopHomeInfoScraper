@@ -21,6 +21,10 @@ struct ImageEditorView: View {
     @State private var scaleStartPoint: CGPoint?
     @State private var scaleEndPoint: CGPoint?
     @State private var zoomScale: CGFloat = 1.0
+    @State private var panOffset: CGSize = .zero
+    @State private var lastZoomScale: CGFloat = 1.0
+    @State private var lastPanOffset: CGSize = .zero
+    @State private var isMeasuringScale: Bool = false
     
     var body: some View {
         NavigationView {
@@ -59,7 +63,9 @@ struct ImageEditorView: View {
                                     .frame(minWidth: 80)
                                     
                                     Button("Zoom In") {
-                                        zoomScale = min(2.0, zoomScale + 0.25)
+                                        let newZoom = min(5.0, zoomScale + 0.25)
+                                        zoomScale = newZoom
+                                        lastZoomScale = newZoom
                                     }
                                     .buttonStyle(.bordered)
                                     .frame(minWidth: 80)
@@ -73,6 +79,9 @@ struct ImageEditorView: View {
                                     
                                     Button("Reset") {
                                         zoomScale = 1.0
+                                        lastZoomScale = 1.0
+                                        panOffset = .zero
+                                        lastPanOffset = .zero
                                     }
                                     .buttonStyle(.bordered)
                                     .frame(minWidth: 60)
@@ -137,7 +146,10 @@ struct ImageEditorView: View {
                                 .font(.headline)
                             
                             VStack(alignment: .leading, spacing: 8) {
-                                Text("Drag across a known dimension (e.g., 10 feet)")
+                                Toggle("Scale Measurement Mode", isOn: $isMeasuringScale)
+                                    .font(.subheadline)
+                                
+                                Text(isMeasuringScale ? "Drag across a known dimension (e.g., 10 feet)" : "Enable measurement mode to set scale")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                                 
@@ -220,35 +232,91 @@ struct ImageEditorView: View {
                 // Main Image Display - Full Width
                 if let image = image {
                     VStack(spacing: 12) {
-                        // Image container that maintains aspect ratio
-                        Image(nsImage: image)
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .scaleEffect(zoomScale)
-                            .rotationEffect(.degrees(rotation))
-                            .clipped()
-                            .cornerRadius(8)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color.blue.opacity(0.3), lineWidth: 2)
-                            )
+                        // Image container that maintains aspect ratio with zoom/pan/pinch support
+                        GeometryReader { geometry in
+                            ZStack {
+                                // Background to ensure gestures work across entire area
+                                Color.clear
+                                    .contentShape(Rectangle())
+                                
+                                Image(nsImage: image)
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fit)
+                                    .scaleEffect(zoomScale)
+                                    .offset(panOffset)
+                                    .rotationEffect(.degrees(rotation))
+                                    .frame(width: geometry.size.width, height: geometry.size.height)
+                                    .clipped()
+                                    .cornerRadius(8)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .stroke(Color.blue.opacity(0.3), lineWidth: 2)
+                                    )
+                                
+                                // Scale measurement line overlay
+                                if isMeasuringScale, let start = scaleStartPoint, let end = scaleEndPoint {
+                                    Path { path in
+                                        path.move(to: start)
+                                        path.addLine(to: end)
+                                    }
+                                    .stroke(Color.red, lineWidth: 2)
+                                    .overlay(
+                                        Circle()
+                                            .fill(Color.red)
+                                            .frame(width: 8, height: 8)
+                                            .position(start)
+                                    )
+                                    .overlay(
+                                        Circle()
+                                            .fill(Color.red)
+                                            .frame(width: 8, height: 8)
+                                            .position(end)
+                                    )
+                                }
+                            }
+                            .contentShape(Rectangle())
                             .gesture(
-                                DragGesture()
+                                MagnificationGesture()
                                     .onChanged { value in
-                                        if scaleStartPoint == nil {
-                                            scaleStartPoint = value.startLocation
-                                        }
-                                        scaleEndPoint = value.location
+                                        let newScale = lastZoomScale * value
+                                        zoomScale = max(0.5, min(5.0, newScale))
                                     }
                                     .onEnded { _ in
-                                        if let start = scaleStartPoint, let end = scaleEndPoint {
-                                            calculateScale(start: start, end: end)
-                                        }
-                                        scaleStartPoint = nil
-                                        scaleEndPoint = nil
+                                        lastZoomScale = zoomScale
                                     }
                             )
-                            .frame(maxWidth: .infinity, maxHeight: 600) // Full width, reasonable height
+                            .simultaneousGesture(
+                                DragGesture()
+                                    .onChanged { value in
+                                        if isMeasuringScale {
+                                            // Scale measurement mode
+                                            if scaleStartPoint == nil {
+                                                scaleStartPoint = value.startLocation
+                                            }
+                                            scaleEndPoint = value.location
+                                        } else {
+                                            // Pan mode
+                                            panOffset = CGSize(
+                                                width: lastPanOffset.width + value.translation.width,
+                                                height: lastPanOffset.height + value.translation.height
+                                            )
+                                        }
+                                    }
+                                    .onEnded { _ in
+                                        if isMeasuringScale {
+                                            if let start = scaleStartPoint, let end = scaleEndPoint {
+                                                calculateScale(start: start, end: end)
+                                            }
+                                            scaleStartPoint = nil
+                                            scaleEndPoint = nil
+                                        } else {
+                                            lastPanOffset = panOffset
+                                        }
+                                    }
+                            )
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: 600) // Full width, reasonable height
+                        .clipped()
                         
                         // Scale Reference Display
                         if scalePixelsPerFoot > 0 {
@@ -267,10 +335,15 @@ struct ImageEditorView: View {
                         }
                         
                         // Instructions
-                        Text("Use controls above to adjust the image")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .padding(.top, 4)
+                        HStack {
+                            Image(systemName: "hand.draw")
+                                .foregroundColor(.blue)
+                                .font(.caption)
+                            Text(isMeasuringScale ? "Drag to measure distance" : "Pinch to zoom • Drag to pan • Toggle measurement mode to set scale")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.top, 4)
                     }
                     .padding(.horizontal)
                 } else {
@@ -306,6 +379,9 @@ struct ImageEditorView: View {
         
         // Load saved zoom and rotation values
         zoomScale = CGFloat(job.zoomScale)
+        lastZoomScale = zoomScale
+        panOffset = .zero
+        lastPanOffset = .zero
         rotation = job.rotation
         if job.scalePixelsPerFoot > 0 {
             scalePixelsPerFoot = job.scalePixelsPerFoot
@@ -326,7 +402,7 @@ struct ImageEditorView: View {
     }
     
     private func saveChanges() {
-        print("💾 [ImageEditorView] Saving changes - Zoom: \(zoomScale), Rotation: \(rotation), Scale: \(scalePixelsPerFoot)")
+        print("MYDEBUG → [ImageEditorView] Saving changes - Zoom: \(zoomScale), Rotation: \(rotation), Scale: \(scalePixelsPerFoot)")
         
         job.scalePixelsPerFoot = scalePixelsPerFoot
         job.zoomScale = Double(zoomScale)  // Convert CGFloat to Double for Core Data
@@ -335,9 +411,9 @@ struct ImageEditorView: View {
         
         do {
             try viewContext.save()
-            print("✅ [ImageEditorView] Successfully saved image changes")
+            print("MYDEBUG → [ImageEditorView] Successfully saved image changes")
         } catch {
-            print("❌ [ImageEditorView] Failed to save image changes: \(error)")
+            print("MYDEBUG → [ImageEditorView] Failed to save image changes: \(error)")
         }
     }
 }

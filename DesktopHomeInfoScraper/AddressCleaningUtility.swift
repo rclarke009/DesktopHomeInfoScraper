@@ -13,6 +13,7 @@ struct AddressCleaningUtility {
     /// - Returns: The cleaned address with apartment/unit numbers removed
     static func cleanAddress(_ address: String) -> String {
         var cleaned = address.trimmingCharacters(in: .whitespaces)
+        let original = cleaned
         
         // Remove quotes if present
         if cleaned.hasPrefix("\"") && cleaned.hasSuffix("\"") {
@@ -21,13 +22,24 @@ struct AddressCleaningUtility {
         
         // Patterns to remove (case-insensitive, with various separators)
         let patterns: [String] = [
-            // Apartment patterns
+            // Apartment patterns - including "Apt A & B", "Apt A&B", "Apt A and B"
+            #",\s*Apt\.?\s*[A-Z0-9]+\s*&\s*[A-Z0-9]+"#,
+            #",\s*Apt\.?\s*[A-Z0-9]+\s+and\s+[A-Z0-9]+"#,
+            #"\s+Apt\.?\s*[A-Z0-9]+\s*&\s*[A-Z0-9]+"#,
+            #"\s+Apt\.?\s*[A-Z0-9]+\s+and\s+[A-Z0-9]+"#,
             #",\s*Apt\.?\s*[A-Z0-9]+"#,
+            #",\s*Apartment\s*[A-Z0-9]+\s*&\s*[A-Z0-9]+"#,
+            #",\s*Apartment\s*[A-Z0-9]+\s+and\s+[A-Z0-9]+"#,
+            #"\s+Apartment\s*[A-Z0-9]+\s*&\s*[A-Z0-9]+"#,
+            #"\s+Apartment\s*[A-Z0-9]+\s+and\s+[A-Z0-9]+"#,
             #",\s*Apartment\s*[A-Z0-9]+"#,
-            #"\s+Apt\.?\s*[A-Z0-9]+"#,
             #"\s+Apartment\s*[A-Z0-9]+"#,
             
-            // Unit patterns
+            // Unit patterns - including "Unit A & B", "Unit A&B", "Unit A and B"
+            #",\s*Unit\s*[A-Z0-9]+\s*&\s*[A-Z0-9]+"#,
+            #",\s*Unit\s*[A-Z0-9]+\s+and\s+[A-Z0-9]+"#,
+            #"\s+Unit\s*[A-Z0-9]+\s*&\s*[A-Z0-9]+"#,
+            #"\s+Unit\s*[A-Z0-9]+\s+and\s+[A-Z0-9]+"#,
             #",\s*Unit\s*[A-Z0-9]+"#,
             #"\s+Unit\s*[A-Z0-9]+"#,
             #",\s*#\s*[A-Z0-9]+"#,
@@ -56,6 +68,11 @@ struct AddressCleaningUtility {
         // Clean up any double spaces or trailing commas/spaces
         cleaned = cleaned.replacingOccurrences(of: "  ", with: " ")
         cleaned = cleaned.trimmingCharacters(in: CharacterSet(charactersIn: ", "))
+        
+        // Debug logging
+        if original != cleaned {
+            print("🧹 [AddressCleaning] Cleaned: '\(original)' -> '\(cleaned)'")
+        }
         
         return cleaned
     }

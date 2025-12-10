@@ -13,8 +13,8 @@ import UniformTypeIdentifiers
 private func formatAddress(job: Job) -> String {
     var components: [String] = []
     
-    // Use cleaned address if available, fallback to original
-    let addressToUse = job.cleanedAddressLine1 ?? job.addressLine1 ?? ""
+    // Use original address for display (includes units), cleaned address is only for geocoding
+    let addressToUse = job.addressLine1 ?? ""
     if !addressToUse.isEmpty {
         components.append(addressToUse)
     }

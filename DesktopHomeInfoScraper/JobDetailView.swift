@@ -15,6 +15,10 @@ struct JobDetailView: View {
     @State private var showingImageEditor = false
     @State private var scalePixelsPerFoot: Double = 0
     @State private var showingExportOptions = false
+    @State private var zoomScale: CGFloat = 1.0
+    @State private var panOffset: CGSize = .zero
+    @State private var lastZoomScale: CGFloat = 1.0
+    @State private var lastPanOffset: CGSize = .zero
     
     private func updateImageSettings(zoom: Double, rotation: Double) {
         job.zoomScale = zoom
@@ -92,19 +96,54 @@ struct JobDetailView: View {
                         
                         if let imagePath = job.overheadImagePath,
                            let image = NSImage(contentsOfFile: imagePath) {
-                            // Square image container with side cropping
-                            Image(nsImage: image)
-                                .resizable()
-                                .aspectRatio(1, contentMode: .fill) // Force square aspect ratio, crop sides
-                                .frame(width: 500, height: 500) // Fixed square container
-                                .scaleEffect(CGFloat(job.zoomScale))
-                                .rotationEffect(.degrees(job.rotation))
-                                .clipped()
-                                .cornerRadius(8)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                            // Interactive image container with zoom/pan/pinch support
+                            GeometryReader { geometry in
+                                ZStack {
+                                    // Background to ensure gestures work across entire area
+                                    Color.clear
+                                        .contentShape(Rectangle())
+                                    
+                                    Image(nsImage: image)
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fit)
+                                        .scaleEffect(zoomScale)
+                                        .offset(panOffset)
+                                        .rotationEffect(.degrees(job.rotation))
+                                        .frame(width: geometry.size.width, height: geometry.size.height)
+                                        .clipped()
+                                        .cornerRadius(8)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 8)
+                                                .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                                        )
+                                }
+                                .contentShape(Rectangle())
+                                .gesture(
+                                    MagnificationGesture()
+                                        .onChanged { value in
+                                            let newScale = lastZoomScale * value
+                                            zoomScale = max(0.5, min(5.0, newScale))
+                                        }
+                                        .onEnded { _ in
+                                            lastZoomScale = zoomScale
+                                            updateImageSettings(zoom: Double(zoomScale), rotation: job.rotation)
+                                        }
                                 )
+                                .simultaneousGesture(
+                                    DragGesture()
+                                        .onChanged { value in
+                                            panOffset = CGSize(
+                                                width: lastPanOffset.width + value.translation.width,
+                                                height: lastPanOffset.height + value.translation.height
+                                            )
+                                        }
+                                        .onEnded { _ in
+                                            lastPanOffset = panOffset
+                                        }
+                                )
+                            }
+                            .frame(width: 500, height: 500)
+                            .clipped()
                             
                             // Image Editing Controls
                             VStack(spacing: 12) {
@@ -121,21 +160,25 @@ struct JobDetailView: View {
                                         
                                         HStack(spacing: 8) {
                                             Button("Zoom Out") {
-                                                let newZoom = max(0.5, job.zoomScale - 0.25)
-                                                updateImageSettings(zoom: newZoom, rotation: job.rotation)
+                                                let newZoom = max(0.5, zoomScale - 0.25)
+                                                zoomScale = newZoom
+                                                lastZoomScale = newZoom
+                                                updateImageSettings(zoom: Double(newZoom), rotation: job.rotation)
                                             }
                                             .buttonStyle(.bordered)
                                             .frame(minWidth: 80)
                                             
                                             Button("Zoom In") {
-                                                let newZoom = min(2.0, job.zoomScale + 0.25)
-                                                updateImageSettings(zoom: newZoom, rotation: job.rotation)
+                                                let newZoom = min(5.0, zoomScale + 0.25)
+                                                zoomScale = newZoom
+                                                lastZoomScale = newZoom
+                                                updateImageSettings(zoom: Double(newZoom), rotation: job.rotation)
                                             }
                                             .buttonStyle(.bordered)
                                             .frame(minWidth: 80)
                                         }
                                         
-                                        Text("Current: \(String(format: "%.1fx", job.zoomScale))")
+                                        Text("Current: \(String(format: "%.1fx", zoomScale))")
                                             .font(.caption)
                                             .foregroundColor(.secondary)
                                     }
@@ -174,6 +217,10 @@ struct JobDetailView: View {
                                             .fontWeight(.medium)
                                         
                                         Button("Reset All") {
+                                            zoomScale = 1.0
+                                            lastZoomScale = 1.0
+                                            panOffset = .zero
+                                            lastPanOffset = .zero
                                             updateImageSettings(zoom: 1.0, rotation: 0.0)
                                         }
                                         .buttonStyle(.bordered)
@@ -188,7 +235,7 @@ struct JobDetailView: View {
                                 }
                                 
                                 // Warning for high zoom
-                                if job.zoomScale > 1.8 {
+                                if zoomScale > 1.8 {
                                     HStack {
                                         Image(systemName: "exclamationmark.triangle")
                                             .foregroundColor(.orange)
@@ -201,6 +248,20 @@ struct JobDetailView: View {
                                     .background(Color.orange.opacity(0.1))
                                     .cornerRadius(4)
                                 }
+                                
+                                // Gesture instructions
+                                HStack {
+                                    Image(systemName: "hand.draw")
+                                        .foregroundColor(.blue)
+                                        .font(.caption)
+                                    Text("Pinch to zoom • Drag to pan")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color.blue.opacity(0.05))
+                                .cornerRadius(4)
                             }
                             .padding()
                             .background(Color.gray.opacity(0.05))
@@ -387,6 +448,13 @@ struct JobDetailView: View {
                 .frame(width: 700, height: 700)
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
+        }
+        .onAppear {
+            // Initialize zoom and pan from saved values
+            zoomScale = CGFloat(job.zoomScale)
+            lastZoomScale = zoomScale
+            panOffset = .zero
+            lastPanOffset = .zero
         }
     }
     
