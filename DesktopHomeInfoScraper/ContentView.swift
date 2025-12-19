@@ -42,6 +42,7 @@ struct ContentView: View {
     @Environment(\.managedObjectContext) private var viewContext
     @StateObject private var scrapingManager = ScrapingManager()
     @State private var showingCSVImport = false
+    @State private var showingManualJobCreation = false
     @State private var selectedJob: Job?
     @State private var showingJobDetail = false
     @State private var showingSettings = false
@@ -85,6 +86,20 @@ struct ContentView: View {
                         HStack {
                             Image(systemName: "square.and.arrow.down")
                             Text("Import CSV File")
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.blue.opacity(0.1))
+                        .foregroundColor(.blue)
+                        .cornerRadius(8)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .padding(.horizontal)
+                    
+                    Button(action: { showingManualJobCreation = true }) {
+                        HStack {
+                            Image(systemName: "plus.circle.fill")
+                            Text("Create Job Manually")
                         }
                         .frame(maxWidth: .infinity)
                         .padding()
@@ -316,6 +331,12 @@ struct ContentView: View {
         .sheet(isPresented: $showingCSVImport) {
             CSVImportView()
                 .frame(width: 800, height: 700)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showingManualJobCreation) {
+            CreateManualJobView()
+                .frame(width: 700, height: 600)
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }

@@ -314,6 +314,7 @@ struct CSVImportView: View {
         
         // Find column indices - case-insensitive matching with variations
         let nameIndex = findColumnIndex(in: header, possibleNames: ["Name", "name"])
+        let insuredNameIndex = findColumnIndex(in: header, possibleNames: ["Insured's name", "insured's name", "Insureds name", "insureds name", "Insured Name", "insured name", "InsuredName", "insuredname"])
         let inspectionDateIndex = findColumnIndex(in: header, possibleNames: ["Inspection Date", "inspection date", "InspectionDate", "inspectiondate"])
         let windowTestStatusIndex = findColumnIndex(in: header, possibleNames: ["Window Test Status", "window test status", "WindowTestStatus", "windowteststatus"])
         let roofReportStatusIndex = findColumnIndex(in: header, possibleNames: ["Roof Report Status", "roof report status", "RoofReportStatus", "roofreportstatus"])
@@ -404,17 +405,37 @@ struct CSVImportView: View {
                 // Debug logging
                 print("📋 [CSVImport] Parsed address: '\(addressToParse)' -> line1: '\(parsedAddress.line1)', city: '\(parsedAddress.city)', state: '\(parsedAddress.state)', zip: '\(parsedAddress.zip ?? "")'")
                 
-                // Use Name field for client name, but if Name contains address, use a default
-                var clientNameValue = nameIndex.flatMap { columns.indices.contains($0) ? columns[$0] : nil } ?? ""
+                // Use Insured's name field for client name (owner name), with fallbacks
+                var clientNameValue = ""
                 
-                // If Name column was used as address, try to get client name from another field or use default
-                if clientNameValue == addressToParse || clientNameValue.isEmpty {
-                    // Try to get from tenant name or use default
+                // Priority 1: Check for "Insured's name" column first
+                if let insuredNameIdx = insuredNameIndex,
+                   columns.indices.contains(insuredNameIdx),
+                   !columns[insuredNameIdx].trimmingCharacters(in: .whitespaces).isEmpty {
+                    clientNameValue = columns[insuredNameIdx].trimmingCharacters(in: .whitespaces)
+                    print("MYDEBUG → Using Insured's name column for owner name: '\(clientNameValue)'")
+                }
+                // Priority 2: Fall back to Name field if Insured's name not available
+                else if let nameIdx = nameIndex,
+                        columns.indices.contains(nameIdx),
+                        !columns[nameIdx].trimmingCharacters(in: .whitespaces).isEmpty {
+                    let nameValue = columns[nameIdx].trimmingCharacters(in: .whitespaces)
+                    // If Name column was used as address, skip it
+                    if nameValue != addressToParse {
+                        clientNameValue = nameValue
+                        print("MYDEBUG → Using Name column for owner name: '\(clientNameValue)'")
+                    }
+                }
+                
+                // Priority 3: If still empty, try tenant name or use default
+                if clientNameValue.isEmpty {
                     if let tenantName = tenantNameIndex.flatMap({ columns.indices.contains($0) ? columns[$0] : nil }),
                        !tenantName.isEmpty {
                         clientNameValue = tenantName
+                        print("MYDEBUG → Using Tenant name as fallback for owner name: '\(clientNameValue)'")
                     } else {
                         clientNameValue = "Sunshine Portfolio"
+                        print("MYDEBUG → Using default owner name: '\(clientNameValue)'")
                     }
                 }
                 

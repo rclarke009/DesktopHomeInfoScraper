@@ -7,6 +7,8 @@
 
 import SwiftUI
 import CoreData
+import UniformTypeIdentifiers
+import Foundation
 
 struct JobDetailView: View {
     let job: Job
@@ -19,6 +21,9 @@ struct JobDetailView: View {
     @State private var panOffset: CGSize = .zero
     @State private var lastZoomScale: CGFloat = 1.0
     @State private var lastPanOffset: CGSize = .zero
+    @State private var showingImagePicker = false
+    @State private var imageReplacementError: String?
+    @State private var imageReplacementSuccess = false
     
     private func updateImageSettings(zoom: Double, rotation: Double) {
         job.zoomScale = zoom
@@ -91,8 +96,23 @@ struct JobDetailView: View {
                 if job.status == "completed" && job.overheadImagePath != nil {
                     // Image Display
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Property Image")
-                            .font(.headline)
+                        HStack {
+                            Text("Property Image")
+                                .font(.headline)
+                            
+                            Spacer()
+                            
+                            Button(action: {
+                                showingImagePicker = true
+                            }) {
+                                HStack {
+                                    Image(systemName: "photo.badge.plus")
+                                    Text("Replace Image")
+                                }
+                                .font(.subheadline)
+                            }
+                            .buttonStyle(.bordered)
+                        }
                         
                         if let imagePath = job.overheadImagePath,
                            let image = NSImage(contentsOfFile: imagePath) {
@@ -325,6 +345,41 @@ struct JobDetailView: View {
                         .padding()
                         .background(Color.gray.opacity(0.05))
                         .cornerRadius(6)
+                        
+                        // Image replacement success/error messages
+                        if imageReplacementSuccess {
+                            HStack {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.green)
+                                Text("Image replaced successfully")
+                                    .foregroundColor(.green)
+                            }
+                            .font(.caption)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.green.opacity(0.1))
+                            .cornerRadius(4)
+                            .onAppear {
+                                // Auto-dismiss success message after 3 seconds
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                                    imageReplacementSuccess = false
+                                }
+                            }
+                        }
+                        
+                        if let error = imageReplacementError {
+                            HStack {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundColor(.red)
+                                Text(error)
+                                    .foregroundColor(.red)
+                            }
+                            .font(.caption)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.red.opacity(0.1))
+                            .cornerRadius(4)
+                        }
                     }
                     
                     // Property Location Map
@@ -449,6 +504,21 @@ struct JobDetailView: View {
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
+        .fileImporter(
+            isPresented: $showingImagePicker,
+            allowedContentTypes: [.jpeg, .png, .heic, .tiff, .bmp, .gif],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .success(let urls):
+                if let selectedURL = urls.first {
+                    replaceOverheadImage(from: selectedURL)
+                }
+            case .failure(let error):
+                imageReplacementError = "Failed to select image: \(error.localizedDescription)"
+                print("MYDEBUG → [JobDetailView] File picker error: \(error.localizedDescription)")
+            }
+        }
         .onAppear {
             // Initialize zoom and pan from saved values
             zoomScale = CGFloat(job.zoomScale)
@@ -490,6 +560,109 @@ struct JobDetailView: View {
             try viewContext.save()
         } catch {
             print("Failed to retry scraping: \(error)")
+        }
+    }
+    
+    private func replaceOverheadImage(from sourceURL: URL) {
+        print("MYDEBUG → [JobDetailView] Replacing overhead image from: \(sourceURL.path)")
+        
+        // Clear previous error/success messages
+        imageReplacementError = nil
+        imageReplacementSuccess = false
+        
+        // Start accessing security-scoped resource (required for fileImporter URLs)
+        let hasAccess = sourceURL.startAccessingSecurityScopedResource()
+        
+        defer {
+            if hasAccess {
+                sourceURL.stopAccessingSecurityScopedResource()
+            }
+        }
+        
+        // Validate that the file is a valid image
+        guard let image = NSImage(contentsOf: sourceURL) else {
+            imageReplacementError = "Selected file is not a valid image"
+            print("MYDEBUG → [JobDetailView] Invalid image file")
+            return
+        }
+        
+        // Ensure image can be represented (basic validation)
+        guard image.isValid else {
+            imageReplacementError = "Selected file is not a valid image format"
+            print("MYDEBUG → [JobDetailView] Image validation failed")
+            return
+        }
+        
+        // Get the destination path (same location as original)
+        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let imagesPath = documentsPath.appendingPathComponent("Images")
+        
+        // Create Images directory if it doesn't exist
+        do {
+            try FileManager.default.createDirectory(at: imagesPath, withIntermediateDirectories: true)
+            print("MYDEBUG → [JobDetailView] Created Images directory if needed")
+        } catch {
+            imageReplacementError = "Failed to create Images directory: \(error.localizedDescription)"
+            print("MYDEBUG → [JobDetailView] Failed to create directory: \(error)")
+            return
+        }
+        
+        // Determine the destination filename (preserve the same naming convention)
+        let jobId = job.jobId ?? UUID().uuidString
+        let imageFileName = "\(jobId)_overhead.jpg"
+        let destinationURL = imagesPath.appendingPathComponent(imageFileName)
+        
+        // Delete old image if it exists and is different from the new one
+        if let oldImagePath = job.overheadImagePath,
+           oldImagePath != destinationURL.path,
+           FileManager.default.fileExists(atPath: oldImagePath) {
+            do {
+                try FileManager.default.removeItem(atPath: oldImagePath)
+                print("MYDEBUG → [JobDetailView] Deleted old image: \(oldImagePath)")
+            } catch {
+                print("MYDEBUG → [JobDetailView] Warning: Failed to delete old image: \(error)")
+                // Continue anyway - we'll overwrite the new location
+            }
+        }
+        
+        // Copy the new image to the destination
+        do {
+            // If destination already exists, remove it first
+            if FileManager.default.fileExists(atPath: destinationURL.path) {
+                try FileManager.default.removeItem(at: destinationURL)
+            }
+            
+            // Copy the new image
+            try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+            print("MYDEBUG → [JobDetailView] Successfully copied image to: \(destinationURL.path)")
+            
+            // Update the job's image path
+            job.overheadImagePath = destinationURL.path
+            
+            // Reset zoom and rotation settings to defaults when replacing image
+            job.zoomScale = 1.0
+            job.rotation = 0.0
+            zoomScale = 1.0
+            lastZoomScale = 1.0
+            panOffset = .zero
+            lastPanOffset = .zero
+            
+            // Optionally clear source metadata to indicate manual replacement
+            // Uncomment if you want to clear source info when manually replacing:
+            // job.sourceName = nil
+            // job.sourceUrl = nil
+            
+            job.updatedAt = Date()
+            
+            // Save the context
+            try viewContext.save()
+            
+            imageReplacementSuccess = true
+            print("MYDEBUG → [JobDetailView] Successfully replaced overhead image")
+            
+        } catch {
+            imageReplacementError = "Failed to replace image: \(error.localizedDescription)"
+            print("MYDEBUG → [JobDetailView] Failed to replace image: \(error)")
         }
     }
 }
