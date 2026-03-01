@@ -38,6 +38,14 @@ private func formatAddress(job: Job) -> String {
     return components.isEmpty ? "No address" : components.joined(separator: ", ")
 }
 
+/// Used to report host window size so sheets can size to fit (e.g. Edit Job).
+private struct HostWindowSizeKey: PreferenceKey {
+    static var defaultValue: CGSize { CGSize(width: 900, height: 700) }
+    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
+        value = nextValue()
+    }
+}
+
 struct ContentView: View {
     @Environment(\.managedObjectContext) private var viewContext
     @StateObject private var scrapingManager = ScrapingManager()
@@ -52,6 +60,9 @@ struct ContentView: View {
     @State private var showingDeleteJobConfirmation = false
     @State private var showingBulkExportOptions = false
     @State private var showImages = true
+    @State private var showingStormCatalog = false
+    /// Host window size so Edit Job sheet can fit on screen (updated via preference).
+    @State private var hostWindowSize: CGSize = CGSize(width: 900, height: 700)
 
     @FetchRequest(
         sortDescriptors: [NSSortDescriptor(keyPath: \Job.createdAt, ascending: false)],
@@ -60,8 +71,9 @@ struct ContentView: View {
 
     var body: some View {
         NavigationView {
-            // Sidebar
-            VStack(alignment: .leading, spacing: 16) {
+            // Sidebar (scrollable so Start Scraping / Settings are reachable when window is short)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
                 // Header
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Property Scraper")
@@ -199,7 +211,32 @@ struct ContentView: View {
                         return approvedJobs.isEmpty
                     }())
                 }
-                
+
+                Divider()
+
+                // Storm Catalog Section
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Storm Catalog")
+                        .font(.headline)
+                        .padding(.horizontal)
+
+                    Button(action: { showingStormCatalog = true }) {
+                        HStack {
+                            Image(systemName: "hurricane")
+                            Text("Manage storms")
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.orange.opacity(0.1))
+                        .foregroundColor(.orange)
+                        .cornerRadius(8)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .padding(.horizontal)
+                }
+
+                Divider()
+
                 // Display Options Section
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Display Options")
@@ -289,6 +326,8 @@ struct ContentView: View {
                 }
                 .buttonStyle(PlainButtonStyle())
                 .padding(.horizontal)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(minWidth: 250)
             
@@ -328,6 +367,12 @@ struct ContentView: View {
                 }
             }
         }
+        .background(
+            GeometryReader { g in
+                Color.clear.preference(key: HostWindowSizeKey.self, value: g.size)
+            }
+        )
+        .onPreferenceChange(HostWindowSizeKey.self) { hostWindowSize = $0 }
         .sheet(isPresented: $showingCSVImport) {
             CSVImportView()
                 .frame(width: 800, height: 700)
@@ -336,20 +381,29 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showingManualJobCreation) {
             CreateManualJobView()
-                .frame(width: 700, height: 600)
+                .frame(width: 700, height: 520)
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showingJobDetail) {
             if let job = selectedJob {
                 JobDetailView(job: job)
-                    .frame(minWidth: 1200, idealWidth: 1400, maxWidth: 1600, minHeight: 800, idealHeight: 1000, maxHeight: 1200)
+                    .frame(
+                        width: min(900, hostWindowSize.width * 0.9),
+                        height: min(640, hostWindowSize.height * 0.85)
+                    )
                     .presentationDetents([.large])
                     .presentationDragIndicator(.visible)
             }
         }
         .sheet(isPresented: $showingSettings) {
             SettingsView()
+        }
+        .sheet(isPresented: $showingStormCatalog) {
+            StormCatalogListView()
+                .frame(width: 640, height: 480)
+                .presentationDetents([.large])
+                .environment(\.managedObjectContext, viewContext)
         }
         .sheet(isPresented: $showingBulkExportOptions) {
             BulkExportOptionsView(jobs: Array(jobs.filter { $0.isApproved && $0.status == "completed" }))

@@ -509,6 +509,21 @@ class BulkJobExporter {
             progressCallback(progress, "Generated map for \(job.jobId ?? "job")")
         }
         
+        // Copy custom hurricane / weather images
+        let customHurricaneImagesDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("custom_hurricane_images")
+        let imagesPath = packagePath.appendingPathComponent("images")
+        for job in jobs where job.customHurricaneImagePath != nil && !(job.customHurricaneImagePath ?? "").isEmpty {
+            guard let customPath = job.customHurricaneImagePath else { continue }
+            let sourceImageURL = customHurricaneImagesDir.appendingPathComponent(customPath)
+            if FileManager.default.fileExists(atPath: sourceImageURL.path) {
+                try FileManager.default.createDirectory(at: imagesPath, withIntermediateDirectories: true)
+                let destFileName = "\(job.jobId ?? "job")_custom_hurricane.jpg"
+                let destURL = imagesPath.appendingPathComponent(destFileName)
+                try FileManager.default.copyItem(at: sourceImageURL, to: destURL)
+            }
+        }
+        
         // Create source_docs directory if requested
         if includeSourceDocs {
             let sourceDocsPath = packagePath.appendingPathComponent("source_docs")
@@ -553,6 +568,10 @@ class BulkJobExporter {
     }
     
     private func createJobData(from job: Job) -> ExportJobData {
+        let jobId = job.jobId ?? "job"
+        let customHurricaneFile: String? = (job.customHurricaneImagePath != nil && !(job.customHurricaneImagePath ?? "").isEmpty)
+            ? "images/\(jobId)_custom_hurricane.jpg"
+            : nil
         return ExportJobData(
             jobId: job.jobId ?? UUID().uuidString,
             clientName: job.clientName,
@@ -566,7 +585,7 @@ class BulkJobExporter {
             phoneNumber: job.phoneNumber,
             areasOfConcern: job.areasOfConcern,
             overhead: OverheadData(
-                imageFile: job.overheadImagePath != nil ? "overhead/\(job.jobId ?? "job")-overhead.jpg" : nil,
+                imageFile: job.overheadImagePath != nil ? "overhead/\(jobId)-overhead.jpg" : nil,
                 source: SourceData(
                     name: job.sourceName,
                     url: job.sourceUrl,
@@ -575,7 +594,12 @@ class BulkJobExporter {
                 scalePixelsPerFoot: job.scalePixelsPerFoot > 0 ? job.scalePixelsPerFoot : nil,
                 zoomScale: job.zoomScale > 1.0 ? job.zoomScale : nil,
                 rotation: job.rotation != 0.0 ? job.rotation : nil
-            )
+            ),
+            namedStormName: job.namedStormName,
+            namedStormDate: job.namedStormDate,
+            namedStormWeatherSource: job.namedStormWeatherSource,
+            customWeatherText: job.customWeatherText,
+            customHurricaneImageFile: customHurricaneFile
         )
     }
     

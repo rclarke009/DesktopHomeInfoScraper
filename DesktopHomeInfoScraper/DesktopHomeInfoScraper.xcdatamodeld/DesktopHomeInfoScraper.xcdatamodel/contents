@@ -24,6 +24,11 @@
         <attribute name="rotation" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
         <attribute name="isApproved" optional="NO" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
         <attribute name="exportedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="namedStormName" optional="YES" attributeType="String"/>
+        <attribute name="namedStormDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="namedStormWeatherSource" optional="YES" attributeType="String"/>
+        <attribute name="customWeatherText" optional="YES" attributeType="String"/>
+        <attribute name="customHurricaneImagePath" optional="YES" attributeType="String"/>
         <relationship name="session" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="ScrapingSession" inverseName="jobs" inverseEntity="ScrapingSession"/>
     </entity>
     <entity name="ScrapingSession" representedClassName="ScrapingSession" syncable="YES" codeGenerationType="class">
@@ -33,8 +38,27 @@
         <attribute name="isActive" optional="NO" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
         <relationship name="jobs" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="Job" inverseName="session" inverseEntity="Job"/>
     </entity>
+    <entity name="CatalogStorm" representedClassName="CatalogStorm" syncable="YES" codeGenerationType="class">
+        <attribute name="id" optional="NO" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="name" optional="NO" attributeType="String"/>
+        <attribute name="stormDate" optional="NO" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="sortOrder" optional="YES" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="defaultWeatherText" optional="YES" attributeType="String"/>
+        <attribute name="defaultSourceText" optional="YES" attributeType="String"/>
+        <relationship name="images" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CatalogStormImage" inverseName="storm" inverseEntity="CatalogStormImage"/>
+    </entity>
+    <entity name="CatalogStormImage" representedClassName="CatalogStormImage" syncable="YES" codeGenerationType="class">
+        <attribute name="id" optional="NO" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="filePath" optional="NO" attributeType="String"/>
+        <attribute name="sortOrder" optional="YES" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="caption" optional="YES" attributeType="String"/>
+        <attribute name="isPrimary" optional="YES" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
+        <relationship name="storm" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="CatalogStorm" inverseName="images" inverseEntity="CatalogStorm"/>
+    </entity>
     <elements>
         <element name="Job" positionX="-63" positionY="-18" width="128" height="164"/>
         <element name="ScrapingSession" positionX="63" positionY="-18" width="128" height="74"/>
+        <element name="CatalogStorm" positionX="-63" positionY="126" width="128" height="134"/>
+        <element name="CatalogStormImage" positionX="63" positionY="126" width="128" height="104"/>
     </elements>
 </model>

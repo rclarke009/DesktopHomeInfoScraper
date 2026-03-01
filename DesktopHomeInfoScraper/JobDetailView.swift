@@ -24,6 +24,7 @@ struct JobDetailView: View {
     @State private var showingImagePicker = false
     @State private var imageReplacementError: String?
     @State private var imageReplacementSuccess = false
+    @State private var showingNamedStormEdit = false
     
     private func updateImageSettings(zoom: Double, rotation: Double) {
         job.zoomScale = zoom
@@ -91,6 +92,78 @@ struct JobDetailView: View {
                     }
                 }
                 .padding(.bottom, 8) // Add extra spacing to prevent overlap
+                
+                // Named Storm (when completed)
+                if job.status == "completed" {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Button(action: { showingNamedStormEdit = true }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: (job.namedStormName != nil && !(job.namedStormName ?? "").isEmpty) ? "checkmark.circle.fill" : "circle")
+                                    .foregroundColor((job.namedStormName != nil && !(job.namedStormName ?? "").isEmpty) ? .green : .gray)
+                                Image(systemName: "hurricane")
+                                    .foregroundColor(.secondary)
+                                Text("Named Storm")
+                                    .font(.headline)
+                                if let name = job.namedStormName, !name.isEmpty {
+                                    Text("— \(name)")
+                                        .font(.subheadline)
+                                        .foregroundColor(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding()
+                            .background(Color.gray.opacity(0.05))
+                            .cornerRadius(8)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+                }
+                
+                // Approval Section (placed high so it stays visible)
+                if job.status == "completed" {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Review & Approval")
+                            .font(.headline)
+                        
+                        HStack {
+                            if job.isApproved {
+                                Button("Approved ✓") {
+                                    toggleApproval()
+                                }
+                                .buttonStyle(BorderedButtonStyle())
+                                .disabled(job.overheadImagePath == nil)
+                            } else {
+                                Button("Approve Image") {
+                                    toggleApproval()
+                                }
+                                .buttonStyle(BorderedProminentButtonStyle())
+                                .disabled(job.overheadImagePath == nil)
+                            }
+                            
+                            if !job.isApproved {
+                                Button("Mark as No Data") {
+                                    markAsNoData()
+                                }
+                                .buttonStyle(BorderedButtonStyle())
+                                .foregroundColor(.red)
+                            }
+                            
+                            Spacer()
+                        }
+                        
+                        if job.isApproved {
+                            Text("This job is approved and ready for export")
+                                .font(.caption)
+                                .foregroundColor(.green)
+                        }
+                    }
+                    .padding()
+                    .background(Color.blue.opacity(0.05))
+                    .cornerRadius(8)
+                }
                 
                 // Main Content
                 if job.status == "completed" && job.overheadImagePath != nil {
@@ -162,7 +235,7 @@ struct JobDetailView: View {
                                         }
                                 )
                             }
-                            .frame(width: 500, height: 500)
+                            .frame(minWidth: 300, maxWidth: 500, minHeight: 300, maxHeight: 500)
                             .clipped()
                             
                             // Image Editing Controls
@@ -382,8 +455,9 @@ struct JobDetailView: View {
                         }
                     }
                     
-                    // Property Location Map
+                    // Property Location Map (constrained so page scroll isn't captured by map gestures)
                     PropertyLocationMap(job: job)
+                        .frame(width: 600, height: 440)
                 } else if job.status == "failed" {
                     // Error Display
                     VStack(spacing: 16) {
@@ -441,53 +515,12 @@ struct JobDetailView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 
-                // Approval Section
-                if job.status == "completed" {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Review & Approval")
-                            .font(.headline)
-                        
-                        HStack {
-                            if job.isApproved {
-                                Button("Approved ✓") {
-                                    toggleApproval()
-                                }
-                                .buttonStyle(BorderedButtonStyle())
-                                .disabled(job.overheadImagePath == nil)
-                            } else {
-                                Button("Approve Image") {
-                                    toggleApproval()
-                                }
-                                .buttonStyle(BorderedProminentButtonStyle())
-                                .disabled(job.overheadImagePath == nil)
-                            }
-                            
-                            if !job.isApproved {
-                                Button("Mark as No Data") {
-                                    markAsNoData()
-                                }
-                                .buttonStyle(BorderedButtonStyle())
-                                .foregroundColor(.red)
-                            }
-                            
-                            Spacer()
-                        }
-                        
-                        if job.isApproved {
-                            Text("This job is approved and ready for export")
-                                .font(.caption)
-                                .foregroundColor(.green)
-                        }
-                    }
-                    .padding()
-                    .background(Color.blue.opacity(0.05))
-                    .cornerRadius(8)
-                }
-                
                 Spacer()
                 }
-                .frame(minWidth: 1200)
+                .frame(maxWidth: .infinity)
                 .padding()
+                .padding(.trailing, 24)
+                .padding(.bottom, 48)
             }
         }
         .sheet(isPresented: $showingImageEditor) {
@@ -501,6 +534,12 @@ struct JobDetailView: View {
         .sheet(isPresented: $showingExportOptions) {
             ExportOptionsView(job: job)
                 .frame(width: 700, height: 700)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showingNamedStormEdit) {
+            NamedStormEditView(job: job)
+                .frame(width: 560, height: 760)
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
