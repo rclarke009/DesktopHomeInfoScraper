@@ -140,6 +140,10 @@ class ScrapingManager: ObservableObject {
                         do {
                             try imageData.write(to: imageURL)
                             job.overheadImagePath = imageURL.path
+                            job.zoomScale = 1.0
+                            job.rotation = 0
+                            job.imagePanX = 0
+                            job.imagePanY = 0
                             print("✅ [ScrapingManager] Saved overhead image: \(imageURL.path)")
                         } catch {
                             print("❌ [ScrapingManager] Failed to save overhead image: \(error)")

@@ -291,6 +291,11 @@ struct NamedStormEditView: View {
     }
 
     private func removeCustomHurricaneImage() {
+        if job.isApproved {
+            job.isApproved = false
+            job.updatedAt = Date()
+            print("MYDEBUG → [NamedStormEditView] Cleared approval after Remove hurricane image")
+        }
         if let imagePath = job.customHurricaneImagePath {
             let imageURL = customHurricaneImagesDirectory().appendingPathComponent(imagePath)
             try? FileManager.default.removeItem(at: imageURL)
@@ -324,6 +329,11 @@ struct NamedStormEditView: View {
     }
 
     private func handleSave() {
+        if job.isApproved {
+            job.isApproved = false
+            job.updatedAt = Date()
+            print("MYDEBUG → [NamedStormEditView] Cleared approval after Named Storm edit")
+        }
         let name = resolvedStormName
         job.namedStormName = name.isEmpty ? nil : name
         job.namedStormDate = name.isEmpty ? nil : stormDate

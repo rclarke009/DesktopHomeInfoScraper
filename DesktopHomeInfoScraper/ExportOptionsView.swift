@@ -391,14 +391,26 @@ class JobExporter {
         let jsonURL = packagePath.appendingPathComponent("jobs.json")
         try jsonData.write(to: jsonURL)
         
-        // Create overhead directory and copy image
+        // Create overhead directory and export cropped overhead image
         let overheadPath = packagePath.appendingPathComponent("overhead")
         try FileManager.default.createDirectory(at: overheadPath, withIntermediateDirectories: true)
         
         if let imagePath = job.overheadImagePath {
             let imageURL = URL(fileURLWithPath: imagePath)
             let destinationURL = overheadPath.appendingPathComponent("\(job.jobId ?? "job")-overhead.jpg")
-            try FileManager.default.copyItem(at: imageURL, to: destinationURL)
+            
+            if let jpegData = await OverheadImageExportRenderer.renderOverheadJPEGData(
+                imageURL: imageURL,
+                zoomScale: job.zoomScale,
+                rotationDegrees: job.rotation,
+                panXNormalized: job.imagePanX,
+                panYNormalized: job.imagePanY
+            ) {
+                try jpegData.write(to: destinationURL)
+            } else {
+                // Fallback to raw copy if render fails for any reason
+                try FileManager.default.copyItem(at: imageURL, to: destinationURL)
+            }
         }
         
         // Create map directory and export map image

@@ -243,6 +243,11 @@ enum StormCatalogService {
             let destURL = destDir.appendingPathComponent(fileName)
             try jpegData.write(to: destURL)
             job.customHurricaneImagePath = fileName
+            if job.isApproved {
+                job.isApproved = false
+                job.updatedAt = Date()
+                print("MYDEBUG → [StormCatalogService] Cleared approval after Use this image")
+            }
             try context.save()
         } catch {
             print("MYDEBUG → StormCatalogService copyCatalogImageToJob write failed: \(error.localizedDescription)")

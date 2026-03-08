@@ -24,6 +24,8 @@ struct ImageEditorView: View {
     @State private var panOffset: CGSize = .zero
     @State private var lastZoomScale: CGFloat = 1.0
     @State private var lastPanOffset: CGSize = .zero
+    @State private var overheadContainerSize: CGSize = .zero
+    @State private var didInitPanFromJob = false
     @State private var isMeasuringScale: Bool = false
     
     var body: some View {
@@ -239,19 +241,15 @@ struct ImageEditorView: View {
                                 Color.clear
                                     .contentShape(Rectangle())
                                 
-                                Image(nsImage: image)
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fit)
-                                    .scaleEffect(zoomScale)
-                                    .offset(panOffset)
-                                    .rotationEffect(.degrees(rotation))
-                                    .frame(width: geometry.size.width, height: geometry.size.height)
-                                    .clipped()
-                                    .cornerRadius(8)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .stroke(Color.blue.opacity(0.3), lineWidth: 2)
-                                    )
+                                OverheadImageTransformView(
+                                    image: image,
+                                    containerSize: geometry.size,
+                                    zoomScale: zoomScale,
+                                    panOffset: panOffset,
+                                    rotation: rotation,
+                                    borderColor: Color.blue.opacity(0.3),
+                                    borderLineWidth: 2
+                                )
                                 
                                 // Scale measurement line overlay
                                 if isMeasuringScale, let start = scaleStartPoint, let end = scaleEndPoint {
@@ -272,6 +270,28 @@ struct ImageEditorView: View {
                                             .frame(width: 8, height: 8)
                                             .position(end)
                                     )
+                                }
+                            }
+                            .onAppear {
+                                overheadContainerSize = geometry.size
+                                if !didInitPanFromJob {
+                                    migrateLegacyPanPointsIfNeeded()
+                                    panOffset = CGSize(
+                                        width: CGFloat(job.imagePanX) * geometry.size.width,
+                                        height: CGFloat(job.imagePanY) * geometry.size.height
+                                    )
+                                    lastPanOffset = panOffset
+                                    didInitPanFromJob = true
+                                }
+                            }
+                            .onChange(of: geometry.size) { _, newSize in
+                                overheadContainerSize = newSize
+                                if didInitPanFromJob {
+                                    panOffset = CGSize(
+                                        width: CGFloat(job.imagePanX) * newSize.width,
+                                        height: CGFloat(job.imagePanY) * newSize.height
+                                    )
+                                    lastPanOffset = panOffset
                                 }
                             }
                             .contentShape(Rectangle())
@@ -315,7 +335,7 @@ struct ImageEditorView: View {
                                     }
                             )
                         }
-                        .frame(maxWidth: .infinity, maxHeight: 600) // Full width, reasonable height
+                        .frame(width: 350, height: 350)
                         .clipped()
                         
                         // Scale Reference Display
@@ -382,9 +402,24 @@ struct ImageEditorView: View {
         lastZoomScale = zoomScale
         panOffset = .zero
         lastPanOffset = .zero
+        didInitPanFromJob = false
         rotation = job.rotation
         if job.scalePixelsPerFoot > 0 {
             scalePixelsPerFoot = job.scalePixelsPerFoot
+        }
+    }
+    
+    private func migrateLegacyPanPointsIfNeeded() {
+        let threshold = 2.0
+        if abs(job.imagePanX) > threshold || abs(job.imagePanY) > threshold {
+            job.imagePanX = job.imagePanX / Double(OverheadImageExportRenderer.legacyPanReferencePoints)
+            job.imagePanY = job.imagePanY / Double(OverheadImageExportRenderer.legacyPanReferencePoints)
+            do {
+                try viewContext.save()
+                print("MYDEBUG → [ImageEditorView] Migrated legacy pan points to normalized pan")
+            } catch {
+                print("MYDEBUG → [ImageEditorView] Failed migrating legacy pan: \(error)")
+            }
         }
     }
     
@@ -403,10 +438,19 @@ struct ImageEditorView: View {
     
     private func saveChanges() {
         print("MYDEBUG → [ImageEditorView] Saving changes - Zoom: \(zoomScale), Rotation: \(rotation), Scale: \(scalePixelsPerFoot)")
-        
+        if job.isApproved {
+            job.isApproved = false
+            print("MYDEBUG → [ImageEditorView] Cleared approval after Advanced Edit")
+        }
         job.scalePixelsPerFoot = scalePixelsPerFoot
         job.zoomScale = Double(zoomScale)  // Convert CGFloat to Double for Core Data
         job.rotation = rotation
+        if overheadContainerSize.width > 1 {
+            job.imagePanX = Double(panOffset.width / overheadContainerSize.width)
+        }
+        if overheadContainerSize.height > 1 {
+            job.imagePanY = Double(panOffset.height / overheadContainerSize.height)
+        }
         job.updatedAt = Date()
         
         do {

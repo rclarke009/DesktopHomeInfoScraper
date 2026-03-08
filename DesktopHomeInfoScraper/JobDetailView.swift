@@ -21,18 +21,53 @@ struct JobDetailView: View {
     @State private var panOffset: CGSize = .zero
     @State private var lastZoomScale: CGFloat = 1.0
     @State private var lastPanOffset: CGSize = .zero
+    @State private var overheadContainerSize: CGSize = .zero
+    @State private var didInitPanFromJob = false
     @State private var showingImagePicker = false
     @State private var imageReplacementError: String?
     @State private var imageReplacementSuccess = false
     @State private var showingNamedStormEdit = false
+    @State private var isApproved = false
     
-    private func updateImageSettings(zoom: Double, rotation: Double) {
+    /// Clears approval so the job must be re-approved after edits. Call before saving.
+    private func clearApprovalIfNeeded() {
+        if job.isApproved {
+            job.isApproved = false
+            job.updatedAt = Date()
+            print("MYDEBUG → [JobDetailView] Cleared approval after edit")
+        }
+    }
+    
+    private func migrateLegacyPanPointsIfNeeded() {
+        // Pre-normalization, pan was stored in points and could be tens/hundreds.
+        // Normalized pan should typically be within about [-1, 1].
+        let threshold = 2.0
+        if abs(job.imagePanX) > threshold || abs(job.imagePanY) > threshold {
+            job.imagePanX = job.imagePanX / Double(OverheadImageExportRenderer.legacyPanReferencePoints)
+            job.imagePanY = job.imagePanY / Double(OverheadImageExportRenderer.legacyPanReferencePoints)
+            do {
+                try viewContext.save()
+                print("MYDEBUG → [JobDetailView] Migrated legacy pan points to normalized pan")
+            } catch {
+                print("MYDEBUG → [JobDetailView] Failed migrating legacy pan: \(error)")
+            }
+        }
+    }
+    
+    private func updateImageSettings(zoom: Double, rotation: Double, pan: CGSize = .zero) {
+        clearApprovalIfNeeded()
         job.zoomScale = zoom
         job.rotation = rotation
+        if overheadContainerSize.width > 1 {
+            job.imagePanX = Double(pan.width / overheadContainerSize.width)
+        }
+        if overheadContainerSize.height > 1 {
+            job.imagePanY = Double(pan.height / overheadContainerSize.height)
+        }
         
         do {
             try viewContext.save()
-            print("✅ [JobDetailView] Successfully saved image settings - Zoom: \(zoom), Rotation: \(rotation)")
+            print("✅ [JobDetailView] Successfully saved image settings - Zoom: \(zoom), Rotation: \(rotation), Pan: \(pan)")
         } catch {
             print("❌ [JobDetailView] Failed to save image settings: \(error)")
         }
@@ -84,7 +119,7 @@ struct JobDetailView: View {
                         .font(.caption)
                     }
                     
-                    if job.isApproved {
+                    if isApproved {
                         Button("Export Job Package") {
                             showingExportOptions = true
                         }
@@ -122,49 +157,6 @@ struct JobDetailView: View {
                     }
                 }
                 
-                // Approval Section (placed high so it stays visible)
-                if job.status == "completed" {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Review & Approval")
-                            .font(.headline)
-                        
-                        HStack {
-                            if job.isApproved {
-                                Button("Approved ✓") {
-                                    toggleApproval()
-                                }
-                                .buttonStyle(BorderedButtonStyle())
-                                .disabled(job.overheadImagePath == nil)
-                            } else {
-                                Button("Approve Image") {
-                                    toggleApproval()
-                                }
-                                .buttonStyle(BorderedProminentButtonStyle())
-                                .disabled(job.overheadImagePath == nil)
-                            }
-                            
-                            if !job.isApproved {
-                                Button("Mark as No Data") {
-                                    markAsNoData()
-                                }
-                                .buttonStyle(BorderedButtonStyle())
-                                .foregroundColor(.red)
-                            }
-                            
-                            Spacer()
-                        }
-                        
-                        if job.isApproved {
-                            Text("This job is approved and ready for export")
-                                .font(.caption)
-                                .foregroundColor(.green)
-                        }
-                    }
-                    .padding()
-                    .background(Color.blue.opacity(0.05))
-                    .cornerRadius(8)
-                }
-                
                 // Main Content
                 if job.status == "completed" && job.overheadImagePath != nil {
                     // Image Display
@@ -196,19 +188,37 @@ struct JobDetailView: View {
                                     Color.clear
                                         .contentShape(Rectangle())
                                     
-                                    Image(nsImage: image)
-                                        .resizable()
-                                        .aspectRatio(contentMode: .fit)
-                                        .scaleEffect(zoomScale)
-                                        .offset(panOffset)
-                                        .rotationEffect(.degrees(job.rotation))
-                                        .frame(width: geometry.size.width, height: geometry.size.height)
-                                        .clipped()
-                                        .cornerRadius(8)
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 8)
-                                                .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                                    OverheadImageTransformView(
+                                        image: image,
+                                        containerSize: geometry.size,
+                                        zoomScale: zoomScale,
+                                        panOffset: panOffset,
+                                        rotation: job.rotation,
+                                        borderColor: Color.gray.opacity(0.3),
+                                        borderLineWidth: 1
+                                    )
+                                }
+                                .onAppear {
+                                    overheadContainerSize = geometry.size
+                                    if !didInitPanFromJob {
+                                        migrateLegacyPanPointsIfNeeded()
+                                        panOffset = CGSize(
+                                            width: CGFloat(job.imagePanX) * geometry.size.width,
+                                            height: CGFloat(job.imagePanY) * geometry.size.height
                                         )
+                                        lastPanOffset = panOffset
+                                        didInitPanFromJob = true
+                                    }
+                                }
+                                .onChange(of: geometry.size) { _, newSize in
+                                    overheadContainerSize = newSize
+                                    if didInitPanFromJob {
+                                        panOffset = CGSize(
+                                            width: CGFloat(job.imagePanX) * newSize.width,
+                                            height: CGFloat(job.imagePanY) * newSize.height
+                                        )
+                                        lastPanOffset = panOffset
+                                    }
                                 }
                                 .contentShape(Rectangle())
                                 .gesture(
@@ -219,7 +229,8 @@ struct JobDetailView: View {
                                         }
                                         .onEnded { _ in
                                             lastZoomScale = zoomScale
-                                            updateImageSettings(zoom: Double(zoomScale), rotation: job.rotation)
+                                            updateImageSettings(zoom: Double(zoomScale), rotation: job.rotation, pan: panOffset)
+                                            isApproved = job.isApproved
                                         }
                                 )
                                 .simultaneousGesture(
@@ -232,10 +243,12 @@ struct JobDetailView: View {
                                         }
                                         .onEnded { _ in
                                             lastPanOffset = panOffset
+                                            updateImageSettings(zoom: Double(zoomScale), rotation: job.rotation, pan: panOffset)
+                                            isApproved = job.isApproved
                                         }
                                 )
                             }
-                            .frame(minWidth: 300, maxWidth: 500, minHeight: 300, maxHeight: 500)
+                            .frame(width: 350, height: 350)
                             .clipped()
                             
                             // Image Editing Controls
@@ -256,7 +269,8 @@ struct JobDetailView: View {
                                                 let newZoom = max(0.5, zoomScale - 0.25)
                                                 zoomScale = newZoom
                                                 lastZoomScale = newZoom
-                                                updateImageSettings(zoom: Double(newZoom), rotation: job.rotation)
+                                                updateImageSettings(zoom: Double(newZoom), rotation: job.rotation, pan: panOffset)
+                                                isApproved = job.isApproved
                                             }
                                             .buttonStyle(.bordered)
                                             .frame(minWidth: 80)
@@ -265,7 +279,8 @@ struct JobDetailView: View {
                                                 let newZoom = min(5.0, zoomScale + 0.25)
                                                 zoomScale = newZoom
                                                 lastZoomScale = newZoom
-                                                updateImageSettings(zoom: Double(newZoom), rotation: job.rotation)
+                                                updateImageSettings(zoom: Double(newZoom), rotation: job.rotation, pan: panOffset)
+                                                isApproved = job.isApproved
                                             }
                                             .buttonStyle(.bordered)
                                             .frame(minWidth: 80)
@@ -285,14 +300,16 @@ struct JobDetailView: View {
                                         HStack(spacing: 8) {
                                             Button("Rotate Left") {
                                                 let newRotation = (job.rotation - 90).truncatingRemainder(dividingBy: 360)
-                                                updateImageSettings(zoom: job.zoomScale, rotation: newRotation)
+                                                updateImageSettings(zoom: job.zoomScale, rotation: newRotation, pan: panOffset)
+                                                isApproved = job.isApproved
                                             }
                                             .buttonStyle(.bordered)
                                             .frame(minWidth: 100)
                                             
                                             Button("Rotate Right") {
                                                 let newRotation = (job.rotation + 90).truncatingRemainder(dividingBy: 360)
-                                                updateImageSettings(zoom: job.zoomScale, rotation: newRotation)
+                                                updateImageSettings(zoom: job.zoomScale, rotation: newRotation, pan: panOffset)
+                                                isApproved = job.isApproved
                                             }
                                             .buttonStyle(.bordered)
                                             .frame(minWidth: 100)
@@ -314,7 +331,8 @@ struct JobDetailView: View {
                                             lastZoomScale = 1.0
                                             panOffset = .zero
                                             lastPanOffset = .zero
-                                            updateImageSettings(zoom: 1.0, rotation: 0.0)
+                                            updateImageSettings(zoom: 1.0, rotation: 0.0, pan: .zero)
+                                            isApproved = job.isApproved
                                         }
                                         .buttonStyle(.bordered)
                                         .frame(minWidth: 80)
@@ -374,6 +392,49 @@ struct JobDetailView: View {
                                     }
                                 )
                                 .cornerRadius(8)
+                        }
+                        
+                        // Review & Approval (below overhead image and editing controls)
+                        if job.status == "completed" {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("Review & Approval")
+                                    .font(.headline)
+                                
+                                HStack {
+                                    if isApproved {
+                                        Button("Approved ✓") {
+                                            toggleApproval()
+                                        }
+                                        .buttonStyle(BorderedButtonStyle())
+                                        .disabled(job.overheadImagePath == nil)
+                                    } else {
+                                        Button("Approve Image") {
+                                            toggleApproval()
+                                        }
+                                        .buttonStyle(BorderedProminentButtonStyle())
+                                        .disabled(job.overheadImagePath == nil)
+                                    }
+                                    
+                                    if !isApproved {
+                                        Button("Mark as No Data") {
+                                            markAsNoData()
+                                        }
+                                        .buttonStyle(BorderedButtonStyle())
+                                        .foregroundColor(.red)
+                                    }
+                                    
+                                    Spacer()
+                                }
+                                
+                                if isApproved {
+                                    Text("This job is approved and ready for export")
+                                        .font(.caption)
+                                        .foregroundColor(.green)
+                                }
+                            }
+                            .padding()
+                            .background(Color.blue.opacity(0.05))
+                            .cornerRadius(8)
                         }
                         
                         // Image Info
@@ -564,6 +625,8 @@ struct JobDetailView: View {
             lastZoomScale = zoomScale
             panOffset = .zero
             lastPanOffset = .zero
+            didInitPanFromJob = false
+            isApproved = job.isApproved
         }
     }
     
@@ -576,6 +639,7 @@ struct JobDetailView: View {
         } catch {
             print("Failed to save approval status: \(error)")
         }
+        isApproved = job.isApproved
     }
     
     private func markAsNoData() {
@@ -675,12 +739,15 @@ struct JobDetailView: View {
             try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
             print("MYDEBUG → [JobDetailView] Successfully copied image to: \(destinationURL.path)")
             
+            clearApprovalIfNeeded()
             // Update the job's image path
             job.overheadImagePath = destinationURL.path
             
-            // Reset zoom and rotation settings to defaults when replacing image
+            // Reset zoom, rotation, and pan to defaults when replacing image
             job.zoomScale = 1.0
             job.rotation = 0.0
+            job.imagePanX = 0
+            job.imagePanY = 0
             zoomScale = 1.0
             lastZoomScale = 1.0
             panOffset = .zero
@@ -697,6 +764,7 @@ struct JobDetailView: View {
             try viewContext.save()
             
             imageReplacementSuccess = true
+            isApproved = job.isApproved
             print("MYDEBUG → [JobDetailView] Successfully replaced overhead image")
             
         } catch {

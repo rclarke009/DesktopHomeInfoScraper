@@ -9,8 +9,14 @@ import Foundation
 import WebKit
 import SwiftUI
 import CoreLocation
+import AppKit
 
 class WebScrapingEngine: NSObject, ObservableObject {
+    private struct StaticMapCandidate {
+        let urlString: String
+        let zoomLevel: Int
+    }
+
     private var webView: WKWebView
     private var completionHandler: ((Result<ScrapeResult, Error>) -> Void)?
     private var currentParams: ScrapeParams?
@@ -121,74 +127,134 @@ class WebScrapingEngine: NSObject, ObservableObject {
     }
     
     private func downloadStaticMapImage(coordinate: CLLocationCoordinate2D? = nil, address: String, completionHandler: @escaping (Result<ScrapeResult, Error>) -> Void) {
-        // Construct Static Maps API URL for satellite imagery
         let apiKey = "AIzaSyBJqaMMXkcJTT2Z37Ye9NNCGlXqXyEJ9Uc"
-        
-        var staticMapsURL: String
-        if let coord = coordinate {
-            // Use coordinates (more reliable)
-            staticMapsURL = "https://maps.googleapis.com/maps/api/staticmap?center=\(coord.latitude),\(coord.longitude)&zoom=21&size=800x600&maptype=satellite&format=png"
-        } else {
-            // Fall back to address string
-            let encodedAddress = address.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-            staticMapsURL = "https://maps.googleapis.com/maps/api/staticmap?center=\(encodedAddress)&zoom=21&size=800x600&maptype=satellite&format=png"
-        }
-        
-        if !apiKey.isEmpty {
-            staticMapsURL += "&key=\(apiKey)"
-        } else {
-            print("⚠️ [WebScrapingEngine] No Google Maps API key provided - requests may fail or return limited data")
-        }
-        
-        print("🗺️ [WebScrapingEngine] Using Google Static Maps API: \(staticMapsURL)")
-        
-        guard let url = URL(string: staticMapsURL) else {
+
+        let candidates = staticMapCandidates(coordinate: coordinate, address: address, apiKey: apiKey)
+        guard !candidates.isEmpty else {
             completeWithResult(.failure(ScrapingError.invalidURL))
             return
         }
-        
-        // Download the image directly instead of using WebView
+
+        print("🗺️ [WebScrapingEngine] Trying \(candidates.count) Google Static Maps candidates")
+        downloadBestStaticMapCandidate(
+            candidates,
+            sourceName: "Google Maps Satellite (Static API)",
+            completionHandler: completionHandler
+        )
+    }
+
+    private func staticMapCandidates(
+        coordinate: CLLocationCoordinate2D?,
+        address: String,
+        apiKey: String
+    ) -> [StaticMapCandidate] {
+        let centerValue: String
+        if let coordinate {
+            centerValue = "\(coordinate.latitude),\(coordinate.longitude)"
+        } else {
+            centerValue = address.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        }
+
+        guard !centerValue.isEmpty else { return [] }
+
+        return [20, 21, 19].map { zoom in
+            var urlString = "https://maps.googleapis.com/maps/api/staticmap?center=\(centerValue)&zoom=\(zoom)&size=640x640&scale=2&maptype=satellite&format=png"
+            if !apiKey.isEmpty {
+                urlString += "&key=\(apiKey)"
+            }
+            return StaticMapCandidate(urlString: urlString, zoomLevel: zoom)
+        }
+    }
+
+    private func downloadBestStaticMapCandidate(
+        _ candidates: [StaticMapCandidate],
+        sourceName: String,
+        completionHandler: @escaping (Result<ScrapeResult, Error>) -> Void
+    ) {
+        guard let candidate = candidates.first else {
+            let result = ScrapeResult(
+                imageBuffer: nil,
+                sourceName: sourceName,
+                canonicalUrl: "",
+                parcelId: nil,
+                notes: "Google Static Maps API request failed - no usable imagery returned"
+            )
+            completeWithResult(.success(result))
+            return
+        }
+
+        guard let url = URL(string: candidate.urlString) else {
+            downloadBestStaticMapCandidate(Array(candidates.dropFirst()), sourceName: sourceName, completionHandler: completionHandler)
+            return
+        }
+
+        print("🗺️ [WebScrapingEngine] Requesting square static map at zoom \(candidate.zoomLevel): \(candidate.urlString)")
+
         downloadImage(from: url) { [weak self] imageData in
-            print("🗺️ [WebScrapingEngine] Static Maps API download completed, data size: \(imageData?.count ?? 0) bytes")
-            
-            // Check if we got an error response (usually small error images)
-            if let imageData = imageData {
-                // If the image is very small, it's likely an error message
-                if imageData.count < 5000 {
-                    print("⚠️ [WebScrapingEngine] Static Maps API returned small response (\(imageData.count) bytes) - likely API key required or error")
-                    let result = ScrapeResult(
-                        imageBuffer: nil,
-                        sourceName: "Google Maps Satellite (Static API)",
-                        canonicalUrl: staticMapsURL,
-                        parcelId: nil,
-                        notes: "Google Static Maps API requires API key or returned error (size: \(imageData.count) bytes)"
-                    )
-                    self?.completeWithResult(.success(result))
-                    return
-                }
-                
-                // Success - we got a reasonable sized image
+            guard let self else { return }
+
+            print("🗺️ [WebScrapingEngine] Static Maps API download completed for zoom \(candidate.zoomLevel), data size: \(imageData?.count ?? 0) bytes")
+
+            if let imageData,
+               self.isUsableStaticMapImageData(imageData) {
                 let result = ScrapeResult(
                     imageBuffer: imageData,
-                    sourceName: "Google Maps Satellite (Static API)",
-                    canonicalUrl: staticMapsURL,
+                    sourceName: sourceName,
+                    canonicalUrl: candidate.urlString,
                     parcelId: nil,
-                    notes: "Aerial view from Google Static Maps API"
+                    notes: "Aerial view from Google Static Maps API (square \(candidate.zoomLevel)x zoom candidate)"
                 )
-                print("🎉 [WebScrapingEngine] Google Static Maps API scraping completed successfully (\(imageData.count) bytes)")
-                self?.completeWithResult(.success(result))
+                print("🎉 [WebScrapingEngine] Google Static Maps API scraping completed successfully at zoom \(candidate.zoomLevel)")
+                self.completeWithResult(.success(result))
+                return
+            }
+
+            if let imageData {
+                print("⚠️ [WebScrapingEngine] Static Maps candidate at zoom \(candidate.zoomLevel) was not usable (\(imageData.count) bytes)")
             } else {
+                print("⚠️ [WebScrapingEngine] Static Maps candidate at zoom \(candidate.zoomLevel) returned no data")
+            }
+
+            if candidates.count == 1 {
                 let result = ScrapeResult(
                     imageBuffer: nil,
-                    sourceName: "Google Maps Satellite (Static API)",
-                    canonicalUrl: staticMapsURL,
+                    sourceName: sourceName,
+                    canonicalUrl: candidate.urlString,
                     parcelId: nil,
-                    notes: "Google Static Maps API request failed - likely requires API key"
+                    notes: "Google Static Maps API requires API key or returned unusable imagery"
                 )
-                print("⚠️ [WebScrapingEngine] Google Static Maps API request failed - no data returned")
-                self?.completeWithResult(.success(result))
+                self.completeWithResult(.success(result))
+            } else {
+                self.downloadBestStaticMapCandidate(Array(candidates.dropFirst()), sourceName: sourceName, completionHandler: completionHandler)
             }
         }
+    }
+
+    private func isUsableStaticMapImageData(_ data: Data) -> Bool {
+        guard data.count >= 10_000,
+              let image = NSImage(data: data) else {
+            return false
+        }
+
+        let pixelSize = imagePixelSize(image)
+        guard pixelSize.width >= 1000, pixelSize.height >= 1000 else {
+            return false
+        }
+
+        return true
+    }
+
+    private func imagePixelSize(_ image: NSImage) -> CGSize {
+        if let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+            return CGSize(width: cgImage.width, height: cgImage.height)
+        }
+
+        if let tiffRepresentation = image.tiffRepresentation,
+           let rep = NSBitmapImageRep(data: tiffRepresentation) {
+            return CGSize(width: rep.pixelsWide, height: rep.pixelsHigh)
+        }
+
+        return .zero
     }
     
     private func completeWithResult(_ result: Result<ScrapeResult, Error>) {
@@ -967,4 +1033,3 @@ class FallbackHillsboroughCountyScraper: PropertyScraper {
                      parcelNumber % 1000)
     }
 }
-

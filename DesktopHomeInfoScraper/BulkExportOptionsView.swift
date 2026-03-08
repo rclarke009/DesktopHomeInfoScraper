@@ -472,7 +472,7 @@ class BulkJobExporter {
         
         progressCallback(0.1, "Created jobs.json")
         
-        // Create overhead directory and copy images
+        // Create overhead directory and export cropped overhead images
         let overheadPath = packagePath.appendingPathComponent("overhead")
         try FileManager.default.createDirectory(at: overheadPath, withIntermediateDirectories: true)
         
@@ -483,11 +483,21 @@ class BulkJobExporter {
             
             let imageURL = URL(fileURLWithPath: imagePath)
             let destinationURL = overheadPath.appendingPathComponent("\(job.jobId ?? "job")-overhead.jpg")
-            
-            try FileManager.default.copyItem(at: imageURL, to: destinationURL)
-            
+
+            if let jpegData = await OverheadImageExportRenderer.renderOverheadJPEGData(
+                imageURL: imageURL,
+                zoomScale: job.zoomScale,
+                rotationDegrees: job.rotation,
+                panXNormalized: job.imagePanX,
+                panYNormalized: job.imagePanY
+            ) {
+                try jpegData.write(to: destinationURL)
+            } else {
+                try FileManager.default.copyItem(at: imageURL, to: destinationURL)
+            }
+
             let progress = 0.1 + (Double(index + 1) / Double(jobsWithImages.count)) * 0.5
-            progressCallback(progress, "Copied image for \(job.jobId ?? "job")")
+            progressCallback(progress, "Exported overhead for \(job.jobId ?? "job")")
         }
         
         // Create map directory and export map images
