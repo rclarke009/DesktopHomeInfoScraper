@@ -10,6 +10,7 @@ import CoreData
 import UniformTypeIdentifiers
 import MapKit
 import CoreLocation
+import AppKit
 
 // Helper function to format address with proper handling of missing components
 private func formatAddress(job: Job) -> String {
@@ -54,7 +55,6 @@ struct BulkExportOptionsView: View {
     @State private var exportedPath: String?
     @State private var exportProgress: Double = 0.0
     @State private var currentJobName: String = ""
-    @State private var showingFilePicker = false
     
     enum ExportFormat: String, CaseIterable {
         case jobIntakePackage = "Job Intake Package"
@@ -321,7 +321,7 @@ struct BulkExportOptionsView: View {
                         .buttonStyle(.bordered)
                         
                         Button("Choose Export Location") {
-                            showingFilePicker = true
+                            presentSavePanel()
                         }
                         .buttonStyle(.borderedProminent)
                         .disabled(isExporting || jobs.isEmpty)
@@ -330,18 +330,22 @@ struct BulkExportOptionsView: View {
                 .padding()
             }
         }
-        .fileExporter(
-            isPresented: $showingFilePicker,
-            document: ExportDocument(),
-            contentType: .folder,
-            defaultFilename: "BulkExport_\(jobs.count)jobs"
-        ) { result in
-            switch result {
-            case .success(let url):
-                exportAllJobs(to: url)
-            case .failure(let error):
-                exportError = "Failed to select location: \(error.localizedDescription)"
+    }
+    
+    private func presentSavePanel() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.zip]
+        panel.canCreateDirectories = true
+        panel.isExtensionHidden = false
+        panel.title = "Export All Approved Jobs"
+        panel.nameFieldStringValue = "BulkExport_\(jobs.count)jobs.zip"
+        
+        panel.begin { response in
+            guard response == .OK, var url = panel.url else { return }
+            if url.pathExtension.lowercased() != "zip" {
+                url.appendPathExtension("zip")
             }
+            exportAllJobs(to: url)
         }
     }
     
@@ -428,7 +432,8 @@ class BulkJobExporter {
             packageName = "BulkExport-FieldReport-\(jobs.count)jobs-\(timestamp)"
         }
         
-        let packagePath = exportURL.appendingPathComponent(packageName)
+        let packagePath = FileManager.default.temporaryDirectory
+            .appendingPathComponent(packageName, isDirectory: true)
         
         try FileManager.default.createDirectory(at: packagePath, withIntermediateDirectories: true)
         
@@ -447,8 +452,23 @@ class BulkJobExporter {
                 progressCallback: progressCallback
             )
         }
+
+        if FileManager.default.fileExists(atPath: exportURL.path) {
+            try FileManager.default.removeItem(at: exportURL)
+        }
+
+        try createZipArchiveForBulk(sourceDirectory: packagePath, destinationZipURL: exportURL)
+        try? FileManager.default.removeItem(at: packagePath)
         
-        return ExportResult(path: packagePath.path)
+        switch format {
+        case .jobIntakePackage:
+            try verifyZipArchiveForBulk(at: exportURL, requiresEntryNamed: "jobs.json")
+        case .fieldResultsPackage:
+            // Placeholder bulk field export writes per-job "<jobId>.json" files.
+            try verifyZipArchiveForBulk(at: exportURL, requiresEntryNamed: ".json")
+        }
+
+        return ExportResult(path: exportURL.path)
     }
     
     private func exportBulkJobIntakePackage(
@@ -611,6 +631,66 @@ class BulkJobExporter {
             customWeatherText: job.customWeatherText,
             customHurricaneImageFile: customHurricaneFile
         )
+    }
+
+    private func createZipArchiveForBulk(sourceDirectory: URL, destinationZipURL: URL) throws {
+        // Zip package contents at archive root so jobs.json is not nested under a parent folder.
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+        process.currentDirectoryURL = sourceDirectory
+        process.arguments = [
+            "-c",
+            "-k",
+            "--sequesterRsrc",
+            ".",
+            destinationZipURL.path
+        ]
+
+        let errorPipe = Pipe()
+        process.standardError = errorPipe
+        try process.run()
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0 else {
+            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+            let errorText = String(data: errorData, encoding: .utf8) ?? "Unknown archive error"
+            throw NSError(
+                domain: "BulkExportZipError",
+                code: Int(process.terminationStatus),
+                userInfo: [NSLocalizedDescriptionKey: errorText]
+            )
+        }
+    }
+    
+    private func verifyZipArchiveForBulk(at zipURL: URL, requiresEntryNamed requiredEntry: String) throws {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: zipURL.path, isDirectory: &isDirectory),
+              !isDirectory.boolValue else {
+            throw NSError(
+                domain: "BulkExportZipError",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Export did not produce a ZIP file at \(zipURL.path)"]
+            )
+        }
+        
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+        process.arguments = ["-l", zipURL.path]
+        let outputPipe = Pipe()
+        process.standardOutput = outputPipe
+        process.standardError = Pipe()
+        try process.run()
+        process.waitUntilExit()
+        
+        let listingData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+        let listing = String(data: listingData, encoding: .utf8) ?? ""
+        guard process.terminationStatus == 0, listing.contains(requiredEntry) else {
+            throw NSError(
+                domain: "BulkExportZipError",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "ZIP archive is missing \(requiredEntry)"]
+            )
+        }
     }
     
     private func generateMapImage(for job: Job) async throws -> NSImage? {

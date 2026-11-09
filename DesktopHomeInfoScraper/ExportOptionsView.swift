@@ -10,6 +10,7 @@ import CoreData
 import UniformTypeIdentifiers
 import MapKit
 import CoreLocation
+import AppKit
 
 // Helper function to format address with proper handling of missing components
 private func formatAddress(job: Job) -> String {
@@ -52,7 +53,6 @@ struct ExportOptionsView: View {
     @State private var exportError: String?
     @State private var exportSuccess = false
     @State private var exportedPath: String?
-    @State private var showingFilePicker = false
     
     enum ExportFormat: String, CaseIterable {
         case jobIntakePackage = "Job Intake Package"
@@ -277,7 +277,7 @@ struct ExportOptionsView: View {
                     .buttonStyle(.bordered)
                     
                     Button("Choose Export Location") {
-                        showingFilePicker = true
+                        presentSavePanel()
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(isExporting)
@@ -286,18 +286,22 @@ struct ExportOptionsView: View {
                 .padding()
             }
         }
-        .fileExporter(
-            isPresented: $showingFilePicker,
-            document: ExportDocument(),
-            contentType: .folder,
-            defaultFilename: "\(job.jobId ?? "Job")_Export"
-        ) { result in
-            switch result {
-            case .success(let url):
-                exportJob(to: url)
-            case .failure(let error):
-                exportError = "Failed to select location: \(error.localizedDescription)"
+    }
+    
+    private func presentSavePanel() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.zip]
+        panel.canCreateDirectories = true
+        panel.isExtensionHidden = false
+        panel.title = "Export Job Package"
+        panel.nameFieldStringValue = "\(job.jobId ?? "Job")_Export.zip"
+        
+        panel.begin { response in
+            guard response == .OK, var url = panel.url else { return }
+            if url.pathExtension.lowercased() != "zip" {
+                url.appendPathExtension("zip")
             }
+            exportJob(to: url)
         }
     }
     
@@ -364,7 +368,8 @@ class JobExporter {
             packageName = "\(job.jobId ?? "Job")-FieldReport-\(timestamp)"
         }
         
-        let packagePath = exportURL.appendingPathComponent(packageName)
+        let packagePath = FileManager.default.temporaryDirectory
+            .appendingPathComponent(packageName, isDirectory: true)
         
         try FileManager.default.createDirectory(at: packagePath, withIntermediateDirectories: true)
         
@@ -374,8 +379,22 @@ class JobExporter {
         case .fieldResultsPackage:
             try await exportFieldResultsPackage(job: job, packagePath: packagePath)
         }
+
+        if FileManager.default.fileExists(atPath: exportURL.path) {
+            try FileManager.default.removeItem(at: exportURL)
+        }
+
+        try createZipArchive(sourceDirectory: packagePath, destinationZipURL: exportURL)
+        try? FileManager.default.removeItem(at: packagePath)
         
-        return ExportResult(path: packagePath.path)
+        switch format {
+        case .jobIntakePackage:
+            try verifyZipArchive(at: exportURL, requiresEntryNamed: "jobs.json")
+        case .fieldResultsPackage:
+            try verifyZipArchive(at: exportURL, requiresEntryNamed: "job.json")
+        }
+
+        return ExportResult(path: exportURL.path)
     }
     
     private func exportJobIntakePackage(job: Job, packagePath: URL, includeSourceDocs: Bool) async throws {
@@ -586,25 +605,70 @@ class JobExporter {
     }
 }
 
+private func createZipArchive(sourceDirectory: URL, destinationZipURL: URL) throws {
+    // Zip package contents at archive root (cwd = package dir, archive ".") so jobs.json is not nested.
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+    process.currentDirectoryURL = sourceDirectory
+    process.arguments = [
+        "-c",
+        "-k",
+        "--sequesterRsrc",
+        ".",
+        destinationZipURL.path
+    ]
+
+    let errorPipe = Pipe()
+    process.standardError = errorPipe
+    try process.run()
+    process.waitUntilExit()
+
+    guard process.terminationStatus == 0 else {
+        let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+        let errorText = String(data: errorData, encoding: .utf8) ?? "Unknown archive error"
+        throw NSError(
+            domain: "ExportZipError",
+            code: Int(process.terminationStatus),
+            userInfo: [NSLocalizedDescriptionKey: errorText]
+        )
+    }
+}
+
+private func verifyZipArchive(at zipURL: URL, requiresEntryNamed requiredEntry: String) throws {
+    var isDirectory: ObjCBool = false
+    guard FileManager.default.fileExists(atPath: zipURL.path, isDirectory: &isDirectory),
+          !isDirectory.boolValue else {
+        throw NSError(
+            domain: "ExportZipError",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Export did not produce a ZIP file at \(zipURL.path)"]
+        )
+    }
+    
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+    process.arguments = ["-l", zipURL.path]
+    let outputPipe = Pipe()
+    process.standardOutput = outputPipe
+    process.standardError = Pipe()
+    try process.run()
+    process.waitUntilExit()
+    
+    let listingData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+    let listing = String(data: listingData, encoding: .utf8) ?? ""
+    guard process.terminationStatus == 0, listing.contains(requiredEntry) else {
+        throw NSError(
+            domain: "ExportZipError",
+            code: 2,
+            userInfo: [NSLocalizedDescriptionKey: "ZIP archive is missing \(requiredEntry)"]
+        )
+    }
+}
+
 // MARK: - Data Models
 
 struct ExportResult {
     let path: String
-}
-
-// Document class for file picker
-struct ExportDocument: FileDocument {
-    static var readableContentTypes: [UTType] { [.folder] }
-    
-    init() {}
-    
-    init(configuration: ReadConfiguration) throws {
-        // Not needed for our use case
-    }
-    
-    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
-        return FileWrapper(directoryWithFileWrappers: [:])
-    }
 }
 
 struct JobIntakeData: Codable {
